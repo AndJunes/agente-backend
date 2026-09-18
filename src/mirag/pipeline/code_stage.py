@@ -10,6 +10,7 @@ from mirag.evidence.obligations import ObligationChecker, ObligationStatus
 from mirag.evidence.properties import EvidenceBuilder, SimulationDetector
 from mirag.execution.interpreters import InterpreterRegistry
 from mirag.execution.syntax import SyntaxChecker
+from mirag.execution.verdict import ExecutionStatus
 from mirag.llm.gateway import LLMGateway
 from mirag.pipeline.delivery import DeliveryReader, OutputWriter
 from mirag.pipeline.knowledge_stage import PreparedRequest
@@ -78,10 +79,16 @@ class CodeDeliveryStage:
 
         clock.restart()
         result = self._syntax.check_then_run(delivery["files"], delivery.get("test_command", ""))
-        note(Step("verification", StepStatus.EXECUTED if result.is_green else StepStatus.ERROR,
+        # Execution switched off: the step did not fail, it did not run. Calling that an error
+        # is the same lie as calling red what nobody looked at.
+        skipped = result.status is ExecutionStatus.NOT_EXECUTED and not self._syntax.executes
+        note(Step("verification",
+                  StepStatus.EXECUTED if result.is_green else StepStatus.SKIPPED if skipped else StepStatus.ERROR,
                   result.describe(t), clock.ms, Source.EXECUTION, result.text[:2000]))
 
-        if not result.is_green and MAX_REPAIRS:
+        # Nothing ran, so there is nothing to repair. Without this guard every run with
+        # execution off paid for a blind repair of a failure nobody had seen.
+        if not result.is_green and not skipped and MAX_REPAIRS:
             clock.restart()
             try:
                 fix = gateway.chat(
@@ -104,7 +111,8 @@ class CodeDeliveryStage:
 
         clock.restart()
         substituted = self._simulation.detect(run.question, delivery.get("files"))
-        run.evidence = self._evidence.build(delivery.get("properties"), result, executed=True, substituted=substituted)
+        run.evidence = self._evidence.build(delivery.get("properties"), result, executed=not skipped,
+                                            substituted=substituted)
         counts = EvidenceBuilder.count(run.evidence)
         note(Step("evidence", StepStatus.EXECUTED,
                   " · ".join(f"{n} {t(f'evidence.status.{k}')}" for k, n in counts.items()) or t("pipeline.evidence.none"),

@@ -1,7 +1,11 @@
 # Mirag
 
-**Give it a problem. Mirag searches what it knows, proposes a solution, runs it, and shows you
-exactly what that solution rests on - and what it does not.**
+**Give it a problem. Mirag searches what it knows, proposes a solution, and shows you exactly
+what that solution rests on - and what it does not.**
+
+It generates the code and its test cases and, by default, **does not run them**: that will be
+the QA agent's job (`MIRAG_EXECUTION=off`). What does not change is that nothing is claimed
+that was not observed, and today that means saying `not_executed` instead of faking a pass.
 
 *[Leer en español](README.es.md)*
 
@@ -35,7 +39,9 @@ books-api · 14 files · its tests executed · [ Download ZIP ]
 
 ## What makes it different
 
-**Status is decided by execution, never by the model.** Four possible verdicts:
+**Status is decided by execution, never by the model.** Four possible verdicts. With
+execution off, production always gives the fourth; the machinery stays whole and the demos
+switch it on to show it. Structure, syntax and imports are checked without running anything:
 
 | | |
 |---|---|
@@ -73,11 +79,10 @@ mirag serve                          # the page (offline, $0)
 mirag demo all --locale es           # the 4 canonical demos, with their contracts checked
 mirag ask "What is an idempotency key?" --locale en
 mirag features                       # which pipeline stages are on, and why
-pytest                               # the fast suite, offline
-pytest -m "not network"              # everything, including the slow tests
+docker compose up -d                 # the same, in an unprivileged container
 ```
 
-`make run`, `make test`, `make lint`, `make demo` do the same on systems with `make`.
+`make run`, `make lint`, `make demo` do the same on systems with `make`.
 
 ## The spending cap
 
@@ -95,6 +100,19 @@ The default is $0.50 per request.
 `POST /api/v1/chat` streams Server-Sent Events; generated projects download from
 `GET /api/v1/artifacts/{id}/download`. The full contract is in [docs/en/api.md](docs/en/api.md).
 
+## On a server
+
+```bash
+docker compose up -d --build       # http://127.0.0.1:8000, and only there
+```
+
+Unprivileged user, its own code read-only, `/tmp` in RAM, no capabilities and CPU, memory and
+process ceilings. The port is published against `127.0.0.1` on purpose, and `MIRAG_TOKEN`
+shuts the door on whoever does not bring the secret. Two images from the same `Dockerfile`:
+`--target base` without a single dependency, and `--target identidad` with `stellar-sdk`.
+How, what each piece protects and **what is still not solved**:
+[docs/en/deployment.md](docs/en/deployment.md).
+
 ## What is not proven
 
 Project generation works end to end - it generates, runs, repairs, packages, checks the
@@ -109,6 +127,7 @@ the machine does not lie when that happens. See
 |---|---|---|
 | Architecture | [docs/en/architecture.md](docs/en/architecture.md) | [docs/es/architecture.md](docs/es/architecture.md) |
 | HTTP API | [docs/en/api.md](docs/en/api.md) | [docs/es/api.md](docs/es/api.md) |
+| Deployment | [docs/en/deployment.md](docs/en/deployment.md) | [docs/es/deployment.md](docs/es/deployment.md) |
 | i18n | [docs/en/i18n.md](docs/en/i18n.md) | [docs/es/i18n.md](docs/es/i18n.md) |
 | Configuration | [docs/en/configuration.md](docs/en/configuration.md) | [docs/es/configuration.md](docs/es/configuration.md) |
 | Development | [docs/en/development.md](docs/en/development.md) | [docs/es/development.md](docs/es/development.md) |

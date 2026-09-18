@@ -4,6 +4,39 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+Brings in the deployment work done on `main` (PR #1) on the old flat layout, ported to
+`src/mirag`.
+
+### Security
+
+- The generated code no longer inherits the environment: the child process gets only `PATH`,
+  `HOME`, the locale and the temp variables. Before, a `print(os.environ)` in a generated test
+  read the OpenRouter key and the Stellar seed.
+- `MIRAG_TOKEN`: with it set, `POST /api/v1/chat` and the download require the
+  `X-Mirag-Token` header (compared with `hmac.compare_digest`); anything else is `401`.
+- An empty `MIRAG_HOST` no longer binds every interface; any non-loopback bind, a missing
+  token and execution being off are announced at startup.
+
+### Added
+
+- `MIRAG_EXECUTION` (default `off`): the agent delivers code and tests without running them
+  and the verdict is `not_executed`. The verification step is `skipped` (not `error`), no
+  repair is paid for, JavaScript syntax is not faked, and a project is `GENERATED` after its
+  static checks. `mirag demo` and the benchmarks switch it on unless it is set.
+- `MIRAG_LLM_URL` for any chat/completions provider; `openrouter/free` shows `FREE` in the
+  cost panel instead of `$0.0000`.
+- The project panel carries each file's `text` (2 MB cap; files shaped like a credential are
+  omitted and say why), so a client can show the code without unpacking the ZIP.
+- `health` reports `execution` and `token_required`.
+- `Dockerfile` (targets `base` and `identidad`), `docker-compose.yml`,
+  `docker-compose.prod.yml`, `.env.server.example`, `scripts/publish.sh`, a CI job for the
+  demo contracts and credentials, image publishing to GHCR on `main`, and
+  `docs/{en,es}/deployment.md`.
+- The earlier variable names `MIRAG_MODELO`, `LIMITE_USD` and `MIRAG_EJECUCION` are read when
+  the new name is absent.
+
 ## [2.0.0] - 2026-09-18
 
 ### Changed

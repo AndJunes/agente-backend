@@ -186,7 +186,8 @@
       "tests": "{count} archivos tocados por tests en rojo"
     },
     "execution": {
-      "limited": "no se ejecuta aquí: falta {missing}"
+      "limited": "no se ejecuta aquí: falta {missing}",
+      "disabled": "sin ejecutar: la ejecución está apagada (MIRAG_EXECUTION=off). Los tests se entregan para el agente de QA"
     },
     "documented": {
       "fails": "`{command}` falla: {header}",
@@ -318,7 +319,8 @@
   },
   "cost": {
     "simulated": "SIMULADO · $0",
-    "no_model": "SIN MODELO · $0"
+    "no_model": "SIN MODELO · $0",
+    "free": "GRATIS · $0 · {model}"
   },
   "answer": {
     "what_was_done": "Qué se hizo",

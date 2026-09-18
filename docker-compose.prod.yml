@@ -1,0 +1,87 @@
+# The server's compose. It builds nothing: it pulls the image that was already checked.
+#
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# That is the whole deployment. The server needs neither the source code, nor Python, nor to
+# build anything: only Docker. Rolling back is setting MIRAG_TAG to an earlier sha and
+# repeating the two lines.
+
+name: codezard
+
+services:
+  mirag:
+    # Same variable scripts/publish.sh uses, so the name lives in one place.
+    image: "${MIRAG_IMAGEN:-andreajunes/agente-backend}:${MIRAG_TAG:-latest}"
+    pull_policy: always
+    container_name: mirag
+    restart: unless-stopped
+
+    # NOTICE WHAT IS MISSING: there is no `ports:`. Not an oversight, it is the best part of
+    # this configuration. CodeZard reaches the agent by service name inside the Docker network
+    # - http://mirag:8000 - and the port does not exist outside that network: not on the
+    # internet, not on the host interfaces, not for any other process on the machine. There is
+    # nothing to firewall because nothing is open. To look at it yourself, use a one-off
+    # SSH tunnel, or publish it against 127.0.0.1 only while you look.
+    networks: [interna]
+
+    environment:
+      MIRAG_HOST: 0.0.0.0          # inside the container; the container network is the boundary
+      # "0" in production: real answers. It can be overridden to REHEARSE the deployment
+      # without spending anything or needing a real key: with MIRAG_OFFLINE=1 in the .env the
+      # scripted demos answer and the model's network is never touched.
+      MIRAG_OFFLINE: "${MIRAG_OFFLINE:-0}"
+      MIRAG_EXECUTION: "off"       # generates code and tests, does not run them. That is QA's.
+      MIRAG_MODEL: "openrouter/free"
+      MIRAG_BUDGET_USD: "0.50"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is missing from .env}"
+      # Even with no published port the token is worth it: it limits the damage if another
+      # container on this network is compromised.
+      MIRAG_TOKEN: "${MIRAG_TOKEN:?MIRAG_TOKEN is missing from .env}"
+
+    security_opt: [ "no-new-privileges:true" ]
+    cap_drop: [ ALL ]
+    tmpfs: [ "/tmp:rw,noexec,nosuid,size=64m" ]
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 1.5
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # The image with stellar-sdk, for /api/v1/blockchain/agent. Only with `--profile identidad`.
+  # It gets the PUBLIC key and the id, never the seed: showing the identity takes unsigned
+  # reads, and signing is only needed to register, which is done by hand, once.
+  mirag-identidad:
+    profiles: ["identidad"]
+    image: "${MIRAG_IMAGEN:-andreajunes/agente-backend}:${MIRAG_TAG:-latest}-identidad"
+    pull_policy: always
+    container_name: mirag-identidad
+    restart: unless-stopped
+    networks: [interna]
+    environment:
+      MIRAG_HOST: 0.0.0.0
+      MIRAG_OFFLINE: "${MIRAG_OFFLINE:-0}"
+      MIRAG_EXECUTION: "off"
+      MIRAG_MODEL: "openrouter/free"
+      MIRAG_BUDGET_USD: "0.50"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:?}"
+      MIRAG_TOKEN: "${MIRAG_TOKEN:?}"
+      MIRAG_BLOCKCHAIN: testnet
+      STELLAR_PUBLIC_KEY: "${STELLAR_PUBLIC_KEY:-}"
+      STELLAR_AGENT_ID: "${STELLAR_AGENT_ID:-}"
+    security_opt: [ "no-new-privileges:true" ]
+    cap_drop: [ ALL ]
+    tmpfs: [ "/tmp:rw,noexec,nosuid,size=64m" ]
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 1.5
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+networks:
+  # CodeZard joins this same network and they talk by name. This compose creates it; if
+  # CodeZard has its own compose, it declares it as `external: true` with the same name.
+  interna:
+    name: codezard_interna

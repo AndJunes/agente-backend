@@ -48,6 +48,8 @@ def benchmark_environment(
     if base is None and (root := source_checkout_root()) is not None:
         load_dotenv(root / ".env", env)  # the API key usually lives there
     env["MIRAG_DATA_DIR"] = str(data_dir)
+    # the benches measure verification, and verifying means running: on unless said otherwise
+    env.setdefault("MIRAG_EXECUTION", "on")
     if offline is not None:
         env["MIRAG_OFFLINE"] = "1" if offline else "0"
     return env

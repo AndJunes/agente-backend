@@ -131,6 +131,8 @@ class Container:
             "status": "ok",
             "version": __version__,
             "offline": self.settings.offline,
+            "execution": self.settings.execution,
+            "token_required": bool(self.settings.api_token),
             "model": self.settings.model,
             "locales": list(self.i18n.supported),
             "default_locale": self.i18n.default_locale,
@@ -155,7 +157,7 @@ def build_container(settings: Settings | None = None, model_builder: ModelBuilde
     i18n = I18n(settings.default_locale)
     gate = FeatureGate(settings.env, gains or GainsRepository(FEATURE_GAINS_FILE))
     interpreters = InterpreterRegistry()
-    runner = CodeRunner(interpreters, timeout_s=settings.code_timeout_s)
+    runner = CodeRunner(interpreters, timeout_s=settings.code_timeout_s, enabled=settings.execution)
     syntax = SyntaxChecker(runner)
     vectors = VectorStoreFactory(settings.vector_backend, settings.openrouter_api_key, settings.offline,
                                  settings.embeddings_dir)

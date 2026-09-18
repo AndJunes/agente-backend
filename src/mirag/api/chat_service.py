@@ -122,7 +122,7 @@ class ChatService:
             panels["project"] = run.artifact.for_page()
         panels["evidence"] = EvidencePanelPresenter().present(run, t)
         panels["timeline"] = TimelinePresenter().present(run)
-        panels["cost"] = CostPresenter().present(run, gateway.budget.snapshot(), t, demo)
+        panels["cost"] = CostPresenter().present(run, gateway.budget.snapshot(), t, demo, gateway.model_name)
         if run.delivery:
             panels["deliverable"] = {
                 "files": run.delivery.get("files", {}),

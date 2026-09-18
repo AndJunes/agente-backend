@@ -16,10 +16,16 @@ from collections.abc import Sequence
 from mirag import __version__
 
 
-def _container():  # imported lazily: `mirag --version` must not load the corpus
-    from mirag.container import build_container
+def _container(execution_by_default: bool = False):  # lazy: `mirag --version` must not load the corpus
+    from dataclasses import replace
 
-    return build_container()
+    from mirag.container import build_container
+    from mirag.core.settings import Settings
+
+    settings = Settings.from_env()
+    if execution_by_default and "MIRAG_EXECUTION" not in settings.env:
+        settings = replace(settings, execution=True)
+    return build_container(settings)
 
 
 def _serve(args: argparse.Namespace) -> int:
@@ -57,7 +63,11 @@ def _ask(args: argparse.Namespace) -> int:
 def _demo(args: argparse.Namespace) -> int:
     from mirag.offline.contracts import DemoContractRunner
 
-    container = _container()
+    # The demos switch execution on (unless MIRAG_EXECUTION says otherwise): what they show is
+    # the verification machinery - that when something DOES run, the verdict comes from what
+    # was observed. Without it all four would come out GENERATED / not executed: honest, and
+    # proving nothing. It is done here and not in the server, which must never switch it on.
+    container = _container(execution_by_default=True)
     locale = container.i18n.resolve(args.locale)
     runner = DemoContractRunner(container)
     keys = runner.keys() if args.name in (None, "all") else [args.name]

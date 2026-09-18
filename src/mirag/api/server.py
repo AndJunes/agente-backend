@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 import json
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -18,6 +19,9 @@ if TYPE_CHECKING:
     from mirag.container import Container
 
 API = "/api/v1"
+TOKEN_HEADER = "X-Mirag-Token"
+PROTECTED_ROUTES = frozenset({"chat", "download"})
+"""What costs money or hands out generated code. The page, health and the rest stay open."""
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
@@ -67,6 +71,19 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
     def _error(self, status: int, code: str, message: str, head_only: bool = False) -> None:
         self._json({"error": {"code": code, "message": message}}, status, head_only)
 
+    def _authorized(self) -> bool:
+        """The shared secret between CodeZard's server and this one. It is not user
+        authentication: whoever holds it can ask for everything.
+
+        ``compare_digest`` and not ``==``: ``==`` stops at the first different byte, and that
+        timing difference is measurable. Doing it right is cheap.
+        """
+        expected = self.container.settings.api_token
+        if not expected:
+            return True
+        given = (self.headers.get(TOKEN_HEADER) or "").strip()
+        return hmac.compare_digest(given.encode("utf-8"), expected.encode("utf-8"))
+
     def _dispatch(self, method: str) -> None:
         path, query = self._split()
         head_only = method == "HEAD"
@@ -79,6 +96,12 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
                 self._error(404, "not_found", "not found", head_only)
             return
         route, params = lookup
+        if route.name in PROTECTED_ROUTES and not self._authorized():
+            # A bare 401: it does not say whether the header is missing or wrong, because that
+            # difference saves work to whoever is probing.
+            self.close_connection = True  # the body was never read: do not reuse the connection
+            self._error(401, "unauthorized", "unauthorized", head_only)
+            return
         if head_only and route.name == "download":
             self._error(404, "not_found", "HEAD does not download", head_only=True)
             return
@@ -226,16 +249,40 @@ class MiragHTTPServer(ThreadingHTTPServer):
 
 def build_server(container: Container, host: str | None = None, port: int | None = None) -> MiragHTTPServer:
     handler = type("BoundApiRequestHandler", (ApiRequestHandler,), {"container": container, "router": build_router()})
-    # Loopback and not "": "" is 0.0.0.0, every interface. This is a single-user local tool
-    # without auth; it has no reason to face the network.
+    # Loopback by default and never "": "" is 0.0.0.0, every interface. The one planned
+    # exception is a container, where 0.0.0.0 is the only way a published port reaches the
+    # process; what isolates it there is publishing against 127.0.0.1 (docs/*/deployment.md).
     return MiragHTTPServer((host or container.settings.host, container.settings.port if port is None else port), handler)
+
+
+LOOPBACK = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def startup_notes(container: Container, host: str) -> list[str]:
+    """What an operator must know before trusting this server. A warning that lies is worse
+    than none - people learn to ignore it - so each one says only what is true now."""
+    settings = container.settings
+    notes = []
+    if not settings.api_token:
+        notes.append(f"No MIRAG_TOKEN: anybody who reaches this port can ask. Set MIRAG_TOKEN and "
+                     f"send it in the {TOKEN_HEADER} header.")
+    if not settings.execution:
+        notes.append("Execution is off: code and tests are delivered WITHOUT running them and the "
+                      "verdict is 'not executed'. Switch it on with MIRAG_EXECUTION=on.")
+    if host not in LOOPBACK:
+        notes.append(f"WARNING: listening on {host}, not only on loopback, "
+                     f"{'with' if settings.api_token else 'WITHOUT'} a token. Publish it only against "
+                     "127.0.0.1 on the host, or behind something that authenticates.")
+    return notes
 
 
 def serve(container: Container) -> None:
     server = build_server(container)
     host, port = server.server_address[:2]
-    address = host.decode() if isinstance(host, bytes) else host
+    address = host if isinstance(host, str) else bytes(host).decode()
     print(f"Mirag {__version__} listening on http://{address}:{port}  (offline={container.settings.offline})")
+    for note in startup_notes(container, address):
+        print(f"  {note}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

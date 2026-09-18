@@ -273,6 +273,17 @@ class ProjectCertifier:
                                tuple(phases), tuple(findings), {}, repairs=tuple(repairs),
                                interpreter=interpreter, project=project)
 
+        # Sections 4 and 5 are the ONLY ones that run the project. With execution off none of
+        # their phases is noted, on purpose: a "tests" phase makes the status EXECUTED ("the
+        # tests ran and printed no marker"), which would be false. Without them it is
+        # GENERATED, "there are files and nothing ran" - exactly what happened. Structure,
+        # syntax and imports above are static analysis and still catch the real failures.
+        if not self._runner.enabled:
+            note(Phase("execution", PhaseStatus.SKIPPED, t("cert.execution.disabled")))
+            status, reason = StatusDeriver(t).derive(tuple(phases), {}, tuple(findings))
+            return Certificate(status, reason, tuple(phases), tuple(findings), {}, repairs=tuple(repairs),
+                               interpreter=interpreter, project=project)
+
         # ── 4. the project's tests, ALWAYS through the probe ─────────────────
         # With the bare project command, unittest prints no markers and the phase comes out
         # NO EVIDENCE - a silence the CRUD markers used to hide, giving a false VERIFIED.

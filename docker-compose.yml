@@ -1,0 +1,107 @@
+# How Mirag runs on a machine you control. The Dockerfile says WHAT is inside; this says with
+# how much power it runs, which is what really decides whether a deployment is safe.
+#
+# Threat model in one line: this agent calls a paid model on behalf of whoever reaches its
+# port and hands out generated code. It no longer runs that code (MIRAG_EXECUTION=off), but
+# everything below still assumes a hostile request, because containment is cheap.
+
+# Two targets from the same Dockerfile. `mirag` is the usual one, without a single
+# dependency. `mirag-identidad` adds stellar-sdk and only starts if you ask for it:
+#   docker compose up -d                            → the clean image
+#   docker compose --profile identidad up -d        → the one that talks to Stellar
+services:
+  mirag:
+    build:
+      context: .
+      target: base
+    image: mirag:base
+    container_name: mirag
+
+    # 127.0.0.1 ON THE HOST SIDE, and this is the most important line of the file. A bare
+    # `- "8000:8000"` publishes on EVERY interface and, on a VPS, that is your agent open to
+    # the internet. With the prefix the port only exists for the machine itself; reach it
+    # through an SSH tunnel or Tailscale.
+    ports:
+      - "127.0.0.1:8000:8000"
+
+    # The key is NOT written here: a docker-compose.yml ends up in git, a .env does not. Nor is
+    # `env_file` used, for a concrete reason: env_file injects the WHOLE .env, including
+    # STELLAR_SECRET_KEY, which this container never needs. With `${VAR}` Compose reads the
+    # same .env but only what is named here gets in.
+    environment:
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      MIRAG_HOST: 0.0.0.0          # inside the container; see the Dockerfile
+      MIRAG_OFFLINE: "1"           # "0" for real answers, and then a key is needed
+      MIRAG_BUDGET_USD: "0.50"     # cap per request: the agent stops before going over
+      MIRAG_EXECUTION: "off"       # generates code and tests, does not run them. That is QA's.
+      # Free model for the proof of concept. Remove the line to go back to the paid default.
+      # Free tier limits: 20 requests/minute and 50/day (1,000 if you ever bought $10).
+      MIRAG_MODEL: "openrouter/free"
+      # Shared secret with CodeZard's server, which sends it in X-Mirag-Token. Empty = open to
+      # whoever reaches the port, and the startup says so. No default token on purpose.
+      MIRAG_TOKEN: "${MIRAG_TOKEN:-}"
+
+    # ── Containment ─────────────────────────────────────────────────────────────
+    # no-new-privileges: no sudo and no setuid binary can escalate from inside.
+    security_opt:
+      - no-new-privileges:true
+
+    # Not a single capability: this process opens a socket and reads files.
+    cap_drop:
+      - ALL
+
+    # In RAM, dies with the container, leaves nothing on the host disk. noexec: no BINARY can
+    # be executed from there; nosuid: a setuid binary left there is useless; size: a loop that
+    # writes forever fills 64 MB of RAM and dies, not the disk.
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+
+    # Ceilings. Without them a runaway request takes the whole machine, not just the container.
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 1.5
+
+    restart: unless-stopped
+
+    # Logs also grow without a ceiling unless told otherwise.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # The same image + stellar-sdk. Only with `--profile identidad`.
+  mirag-identidad:
+    profiles: ["identidad"]
+    build:
+      context: .
+      target: identidad
+    image: mirag:identidad
+    container_name: mirag-identidad
+    ports:
+      - "127.0.0.1:8001:8000"
+
+    # SHOWING the identity only takes unsigned reads, so the PUBLIC key and the id are
+    # enough. The seed is only needed to register, which is a manual, local, one-off operation
+    # (scripts/blockchain_agent_demo.py). That is why STELLAR_SECRET_KEY does not appear here.
+    environment:
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      MIRAG_HOST: 0.0.0.0
+      MIRAG_OFFLINE: "1"
+      MIRAG_BUDGET_USD: "0.50"
+      MIRAG_EXECUTION: "off"
+      MIRAG_TOKEN: "${MIRAG_TOKEN:-}"
+      MIRAG_BLOCKCHAIN: testnet
+      STELLAR_PUBLIC_KEY: "${STELLAR_PUBLIC_KEY:-}"
+      STELLAR_AGENT_ID: "${STELLAR_AGENT_ID:-}"
+
+    security_opt: [ "no-new-privileges:true" ]
+    cap_drop: [ ALL ]
+    tmpfs: [ "/tmp:rw,noexec,nosuid,size=64m" ]
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 1.5
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }

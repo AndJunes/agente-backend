@@ -13,8 +13,28 @@ esta forma:
 {"error": {"code": "missing_question", "message": "'question' is required and must be a non-empty string"}}
 ```
 
-Por defecto el servidor escucha en loopback (`127.0.0.1:8000`): es una herramienta local de un
-solo usuario, sin autenticación.
+Por defecto el servidor escucha en loopback (`127.0.0.1:8000`). Para correrlo al servicio de
+otra aplicación (CodeZard), ver [deployment.md](deployment.md).
+
+## Autenticación
+
+Con `MIRAG_TOKEN` definido, `POST /api/v1/chat` y la descarga exigen la cabecera:
+
+```
+X-Mirag-Token: <el valor de MIRAG_TOKEN>
+```
+
+Cualquier otra cosa es `401 unauthorized`, y la respuesta no dice si falta la cabecera o si el
+valor está mal. La página, health y las demás rutas de solo lectura siguen abiertas. Sin
+`MIRAG_TOKEN` el servidor queda abierto —el modo local— y lo avisa al arrancar. Es un secreto
+compartido entre dos servidores, no autenticación de usuarios: el navegador habla con CodeZard,
+el servidor de CodeZard habla con Mirag, y el token nunca llega a un navegador. Por eso tampoco
+hay CORS. Con token puesto, la página web incluida no puede preguntar (no tiene el token): es
+para uso local.
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"   # para generarlo
+```
 
 ## Rutas
 
@@ -42,7 +62,8 @@ siguiente fuente.
 
 ```json
 {
-  "status": "ok", "version": "2.0.0", "offline": true, "model": "anthropic/claude-haiku-4.5",
+  "status": "ok", "version": "2.0.0", "offline": true, "execution": false, "token_required": true,
+  "model": "anthropic/claude-haiku-4.5",
   "locales": ["en", "es"], "default_locale": "en",
   "interpreters": ["node", "python", "python3"],
   "features": {"retrieval_plan": true, "reranker": true, "vector_signal": false, "...": false}
@@ -83,8 +104,8 @@ siguiente fuente.
 ### `GET /api/v1/artifacts/{id}/download`
 
 `id` son 24 caracteres hexadecimales en minúscula. Respuestas: `200 application/zip` con
-`Content-Disposition: attachment; filename="<name>.zip"` y `X-Mirag-Sha256`; `400
-malformed_id`; `410 gone` (vencido o desconocido); `409 integrity_error` (el paquete no pasó la
+`Content-Disposition: attachment; filename="<name>.zip"` y `X-Mirag-Sha256` (compáralo con
+`project.zip.sha256`); `400 malformed_id`; `401 unauthorized`; `410 gone` (vencido o desconocido); `409 integrity_error` (el paquete no pasó la
 inspección); `500 integrity_error` (los bytes cambiaron entre la inspección y la entrega). La
 URL siempre se toma de `project.download_url` en el stream del chat; el cliente nunca la arma.
 
@@ -118,7 +139,8 @@ Request (`Content-Type: application/json`, 64 KiB como máximo):
 | `mode` | string | no | `pipeline` (por defecto, producción) o `architect` (experimental) |
 | `locale` | string | no | `en` o `es` |
 
-Los errores de validación se responden con un `400` JSON **antes** de que empiece el stream. Una
+Un token ausente o incorrecto es `401` y los errores de validación son `400`, ambos en JSON y
+**antes** de que empiece el stream. Una
 vez que el stream empieza, el status es `200 text/event-stream` y cada evento es una línea
 `data: <json>\n\n`.
 
@@ -206,8 +228,13 @@ cuando se entregó código que nunca se ejecutó. `observed.status` es uno de `p
 
 ```json
 {"simulated": true, "demo": "code", "calls": 0, "text": "SIMULATED · $0"}
-{"simulated": false, "text": "$0.0123", "calls": 2, "tokens": 5120}
+{"simulated": false, "free": false, "text": "$0.0123", "calls": 2, "tokens": 5120}
+{"simulated": false, "free": true, "model": "openrouter/free", "text": "GRATIS · $0 · openrouter/free",
+ "calls": 2, "tokens": 5120}
 ```
+
+`free` son llamadas reales que reportaron un coste de exactamente 0 (un modelo gratuito): no se
+disfraza de `$0.0000`.
 
 **Entregable** (rama de código, un solo archivo):
 
@@ -225,7 +252,7 @@ request y que el código ejecutado reemplazó por una simulación.
 {
   "id": "24-hex", "name": "books-api", "status": "VERIFIED", "simulated": true,
   "reason": "the 16 markers pass, including the full CRUD over HTTP",
-  "files": [{"path": "app/main.py", "bytes": 1234, "lines": 60, "sha256": "..."}],
+  "files": [{"path": "app/main.py", "bytes": 1234, "lines": 60, "sha256": "...", "text": "...el archivo entero..."}],
   "totals": {"files": 14, "directories": 4, "lines": 386, "bytes": 12000},
   "verification": {"status": "VERIFIED", "reason": "...", "markers": {}, "passed": 16, "failed": 0},
   "phases": [{"name": "tests", "status": "ok", "detail": "..."}],
@@ -242,3 +269,31 @@ request y que el código ejecutado reemplazó por una simulación.
 `no_extra_files`, `extracts`, `hashes_match`, `no_secret_content`,
 `embedded_manifest_matches`, `builds`) y la página los traduce. `download_url` es `null`
 cuando el paquete no pasó la inspección: en ese caso no hay botón de descarga.
+
+`files[].text` es el contenido completo de cada archivo: con eso se muestra el código sin
+descomprimir nada. Puede venir en `null`, y entonces `text_omitted` dice por qué: el proyecto
+pasa de 2 MB en total, o el archivo contiene algo con forma de credencial. Un archivo vacío es
+`""`, que no es lo mismo que `null`.
+
+**Los artefactos caducan.** Viven en la memoria del proceso y se pierden a la hora, cuando hay
+más de 20 (se van los más viejos), al pasar de 64 MB en total, y en cada reinicio. Baja el ZIP
+en cuanto llegue el evento `done` y guárdalo tú: guardar el id para más tarde es guardar un
+`410` futuro.
+
+## Cuando la ejecución está apagada
+
+Con `MIRAG_EXECUTION=off` (el valor por defecto) el agente entrega el código y sus tests sin
+correrlos; ejecutarlos es trabajo del agente de QA. Entonces, siempre:
+
+| Campo | Valor | Qué significa |
+|---|---|---|
+| `project.status` | `GENERATED` | hay archivos y nada se ejecutó |
+| `project.phases` | `structure`, `syntax`, `imports` y luego `execution: skipped` | los chequeos estáticos sí corrieron |
+| `evidence.observed.status` | `not_executed` | no se observó nada |
+| `deliverable.status` | `not_executed` | ídem |
+| `step` `verification` | `skipped` | no falló: no corrió |
+
+**Muéstralo como «pendiente de QA», nunca como aprobado ni como fallo.** `not_executed` no es
+un suspenso: es que nadie ha mirado todavía. Esa distinción es el producto entero; un cliente
+que la pierde al pintar se la hace perder al usuario. Un proyecto con la sintaxis rota sigue
+saliendo `FAILED` de verdad.

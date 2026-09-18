@@ -16,7 +16,11 @@ from pathlib import Path
 from mirag.paths import default_data_dir, source_checkout_root
 
 DEFAULT_MODEL = "anthropic/claude-haiku-4.5"
+DEFAULT_LLM_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_LOCALE = "en"
+
+_LEGACY_NAMES = {"MIRAG_MODELO": "MIRAG_MODEL", "LIMITE_USD": "MIRAG_BUDGET_USD",
+                 "MIRAG_EJECUCION": "MIRAG_EXECUTION"}
 
 
 def load_dotenv(path: Path, environ: dict[str, str] | None = None) -> bool:
@@ -70,7 +74,7 @@ class Settings:
 
     model: str = DEFAULT_MODEL
     openrouter_api_key: str = ""
-    openrouter_url: str = "https://openrouter.ai/api/v1/chat/completions"
+    openrouter_url: str = DEFAULT_LLM_URL
     budget_usd: float = 0.50
     """Spending cap per request. 0 disables the cap (accounting only)."""
 
@@ -79,13 +83,21 @@ class Settings:
 
     default_locale: str = DEFAULT_LOCALE
     host: str = "127.0.0.1"
-    """Loopback on purpose: a single-user local tool with no auth must not face the network."""
+    """Loopback on purpose: opening it to a network must be a deliberate, visible act."""
     port: int = 8000
+    api_token: str = field(default="", repr=False)
+    """Shared secret the caller sends in ``X-Mirag-Token``. Empty = the server is open to
+    whoever reaches its port (the local mode), and it says so at startup. There is no default
+    token on purpose: a factory secret is known to everybody."""
 
     data_dir: Path = field(default_factory=default_data_dir)
     symbols_root: Path | None = None
     vector_backend: str = "local"
     code_timeout_s: int = 30
+    execution: bool = False
+    """Run the generated code and its tests? Off: the agent delivers them WITHOUT running them
+    (running them is the QA agent's job) and the verdict is ``not_executed`` - never a pass,
+    never a fail. The machinery stays whole: the demos and the benchmarks switch it on."""
 
     env: Mapping[str, str] = field(default_factory=dict, repr=False, compare=False)
     """The environment the settings were read from; feature flags resolve against it."""
@@ -114,21 +126,31 @@ class Settings:
                 load_dotenv(root / ".env")
             environ = dict(os.environ)
         env = dict(environ)
+        # Deployments made before the move to src/ used Spanish names. Ignoring them silently
+        # would, for example, switch a free-model server to the paid default.
+        for legacy, current in _LEGACY_NAMES.items():
+            if legacy in env and current not in env:
+                env[current] = env[legacy]
         data_dir = Path(env["MIRAG_DATA_DIR"]) if env.get("MIRAG_DATA_DIR") else default_data_dir()
         symbols_root = env.get("MIRAG_SYMBOLS_ROOT")
         return cls(
             offline=_flag(env, "MIRAG_OFFLINE", True),
-            model=env.get("MIRAG_MODEL", DEFAULT_MODEL),
+            model=(env.get("MIRAG_MODEL") or "").strip() or DEFAULT_MODEL,
             openrouter_api_key=env.get("OPENROUTER_API_KEY", ""),
+            # Every provider worth using (OpenRouter, NVIDIA, Groq, Gemini) speaks the same
+            # chat/completions dialect: switching is this URL plus the model, nothing else.
+            openrouter_url=(env.get("MIRAG_LLM_URL") or "").strip() or DEFAULT_LLM_URL,
             budget_usd=_float(env, "MIRAG_BUDGET_USD", 0.50),
             max_output_tokens=_int(env, "MIRAG_MAX_OUTPUT_TOKENS", 12_000),
             default_locale=(env.get("MIRAG_LOCALE") or DEFAULT_LOCALE).strip().lower(),
-            host=env.get("MIRAG_HOST", "127.0.0.1"),
+            host=(env.get("MIRAG_HOST") or "").strip() or "127.0.0.1",
             port=_int(env, "MIRAG_PORT", 8000),
+            api_token=(env.get("MIRAG_TOKEN") or "").strip(),
             data_dir=data_dir,
             symbols_root=Path(symbols_root) if symbols_root else None,
             vector_backend=(env.get("MIRAG_VECTOR_BACKEND") or "local").strip().lower(),
             code_timeout_s=_int(env, "MIRAG_CODE_TIMEOUT_S", 30),
+            execution=_flag(env, "MIRAG_EXECUTION", False),
             env=env,
         )
 

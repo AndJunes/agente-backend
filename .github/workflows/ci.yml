@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -20,3 +21,115 @@ jobs:
       - run: python -m ruff check src benchmarks scripts
       - run: python -m mypy
 
+  contracts:
+    name: Demo contracts and no credentials
+    runs-on: ubuntu-24.04    # pinned: `ubuntu-latest` moves to Ubuntu 26 on 2026-10-19
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"   # the same as the Dockerfile
+
+      # No model call and no dependency: the core is standard library. The demos switch
+      # execution on, because they are what shows the verification machinery.
+      - name: The demo contracts
+        env:
+          MIRAG_OFFLINE: "1"
+          PYTHONPATH: src
+        run: python -m mirag demo all
+
+      - name: No credential in what is versioned
+        run: |
+          # Cheap, and it covers the most expensive slip: a .env committed by mistake.
+          if git ls-files | grep -qxF ".env"; then echo "::error::.env is versioned"; exit 1; fi
+          # -l and not -n: `git grep -n` prints the matching LINE, and this repository is
+          # public. A warning that echoes the credential into a public log leaks exactly what
+          # it exists to protect. Files are named, content never.
+          if git grep -lIE "sk-or-v1-[A-Za-z0-9]{20,}|\bS[A-Z2-7]{55}\b" -- . ; then
+            echo "::error::something shaped like a credential in the files above"
+            exit 1
+          fi
+          echo "no credentials in the tree"
+
+  image:
+    name: Publish both images to GHCR
+    # Only when the checks passed: an image that does not pass its own checks is not published.
+    needs: [lint, contracts]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── the clean image: zero dependencies ────────────────────────────────────
+      - id: meta_base
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=sha
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: base
+          push: true
+          tags: ${{ steps.meta_base.outputs.tags }}
+          labels: ${{ steps.meta_base.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── the identity image: + stellar-sdk, for /api/v1/blockchain/agent ───────
+      - id: meta_id
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          flavor: |
+            suffix=-identidad,onlatest=true
+          tags: |
+            type=raw,value=latest
+            type=sha
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: identidad
+          push: true
+          tags: ${{ steps.meta_id.outputs.tags }}
+          labels: ${{ steps.meta_id.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: The published image starts and carries no secret
+        run: |
+          # Checked against the image that was JUST pushed: a failure belongs here, not on the server.
+          IMG=ghcr.io/${{ github.repository }}:latest
+          docker pull -q "$IMG"
+          docker run --rm --entrypoint sh "$IMG" -c 'test ! -f /app/.env' \
+            || { echo "::error::the image carries a .env"; exit 1; }
+          docker run -d --name check -p 127.0.0.1:8000:8000 "$IMG"
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/api/v1/health || true)
+            [ "$code" = "200" ] && break
+            sleep 1
+          done
+          echo "health answers: HTTP $code"
+          test "$code" = "200"
+          # and the paths that must never be served are still not served
+          for path in /.env /pyproject.toml /src/mirag/core/settings.py /var/traces/pipeline.jsonl; do
+            c=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8000$path")
+            echo "  $path -> $c"
+            test "$c" = "404"
+          done
+          docker rm -f check

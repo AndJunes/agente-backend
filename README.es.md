@@ -1,7 +1,11 @@
 # Mirag
 
-**Le das un problema. Mirag busca lo que sabe, propone una solución, la ejecuta y te muestra
-exactamente en qué se apoya esa solución - y en qué no.**
+**Le das un problema. Mirag busca lo que sabe, propone una solución y te muestra exactamente
+en qué se apoya esa solución - y en qué no.**
+
+Genera el código y sus casos de test y, por defecto, **no los ejecuta**: eso será trabajo del
+agente de QA (`MIRAG_EXECUTION=off`). Lo que no cambia es que no se afirma nada que no se haya
+observado, y hoy eso significa decir `not_executed` en vez de fingir un aprobado.
 
 *[Read in English](README.md)*
 
@@ -36,7 +40,9 @@ books-api · 14 archivos · sus tests ejecutados · [ Descargar ZIP ]
 
 ## Qué lo hace distinto
 
-**El estado lo decide la ejecución, nunca el modelo.** Cuatro veredictos posibles:
+**El estado lo decide la ejecución, nunca el modelo.** Cuatro veredictos posibles. Con la
+ejecución apagada, en producción sale siempre el cuarto; la maquinaria sigue entera y las demos
+la encienden para enseñarla. Estructura, sintaxis e imports se comprueban sin ejecutar nada:
 
 | | |
 |---|---|
@@ -74,11 +80,10 @@ mirag serve                          # la página (offline, $0)
 mirag demo all --locale es           # las 4 demos canónicas, con sus contratos verificados
 mirag ask "What is an idempotency key?" --locale en
 mirag features                       # qué etapas del pipeline están encendidas, y por qué
-pytest                               # la suite rápida, offline
-pytest -m "not network"              # todo, incluidos los tests lentos
+docker compose up -d                 # lo mismo, en un contenedor sin privilegios
 ```
 
-`make run`, `make test`, `make lint`, `make demo` hacen lo mismo en sistemas con `make`.
+`make run`, `make lint`, `make demo` hacen lo mismo en sistemas con `make`.
 
 ## El tope de gasto
 
@@ -97,6 +102,19 @@ El valor por defecto es $0.50 por request.
 de `GET /api/v1/artifacts/{id}/download`. El contrato completo está en
 [docs/es/api.md](docs/es/api.md).
 
+## En un servidor
+
+```bash
+docker compose up -d --build       # http://127.0.0.1:8000, y solo ahí
+```
+
+Usuario sin privilegios, su propio código en solo lectura, `/tmp` en RAM, sin capabilities y
+con techo de CPU, memoria y procesos. El puerto se publica contra `127.0.0.1` a propósito, y
+`MIRAG_TOKEN` le cierra la puerta a quien no traiga el secreto. Dos imágenes desde el mismo
+`Dockerfile`: `--target base` sin una sola dependencia, y `--target identidad` con
+`stellar-sdk`. Cómo se hace, qué protege cada pieza y **qué sigue sin estar resuelto**:
+[docs/es/deployment.md](docs/es/deployment.md).
+
 ## Lo que no está demostrado
 
 La generación de proyectos funciona de punta a punta - genera, ejecuta, repara, empaqueta,
@@ -111,6 +129,7 @@ está demostrado es que la máquina no miente cuando eso pasa. Ver
 |---|---|---|
 | Arquitectura | [docs/en/architecture.md](docs/en/architecture.md) | [docs/es/architecture.md](docs/es/architecture.md) |
 | API HTTP | [docs/en/api.md](docs/en/api.md) | [docs/es/api.md](docs/es/api.md) |
+| Despliegue | [docs/en/deployment.md](docs/en/deployment.md) | [docs/es/deployment.md](docs/es/deployment.md) |
 | i18n | [docs/en/i18n.md](docs/en/i18n.md) | [docs/es/i18n.md](docs/es/i18n.md) |
 | Configuración | [docs/en/configuration.md](docs/en/configuration.md) | [docs/es/configuration.md](docs/es/configuration.md) |
 | Desarrollo | [docs/en/development.md](docs/en/development.md) | [docs/es/development.md](docs/es/development.md) |

@@ -31,9 +31,11 @@ from typing import Any
 
 from mirag.projects.certification import Certificate
 from mirag.projects.model import Project
-from mirag.projects.packaging import MANIFEST_NAME, Package
+from mirag.projects.packaging import MANIFEST_NAME, SECRETS, Manifest, Package
 
 VALID_ID = re.compile(r"\A[0-9a-f]{24}\Z")
+MAX_TEXT_BYTES = 2 * 1024 * 1024
+"""Cap of the file text sent in the JSON. A normal generated project is tens of KB."""
 TTL_S = 3600
 MAX_ALIVE = 20
 MEMORY_LIMIT = 64 * 1024 * 1024
@@ -65,6 +67,39 @@ class Artifact:
         """The page NEVER builds this URL: it uses it as is or draws no button."""
         return f"/api/v1/artifacts/{self.id}/download" if self.downloadable else None
 
+    def _files(self, manifest: Manifest | None) -> list[dict[str, Any]]:
+        """The manifest fingerprints, plus the TEXT of every file.
+
+        The text travels here because the consumer is no longer only the own page: CodeZard
+        has to SHOW the code, and until now the content lived only inside the ZIP.
+
+        Two guards, and neither is spare:
+
+        1. :data:`MAX_TEXT_BYTES` in total. Past it the paths go WITHOUT text and say why:
+           silently sending a response of tens of MB is not a delivery, it is a failure that
+           shows up later and somewhere else.
+        2. The same :data:`SECRETS` pattern the package inspection uses. It already stops a
+           secret from travelling inside a ZIP, but this payload is emitted EVEN WHEN the ZIP
+           is not downloadable. Without this guard the text would open through the API the very
+           door the ZIP keeps shut. A file with something shaped like a key sends its path only.
+        """
+        rows: list[dict[str, Any]] = [{"path": f.path, "bytes": f.size, "lines": f.lines, "sha256": f.sha256}
+                                      for f in (manifest.files if manifest else ())]
+        total = sum(row["bytes"] for row in rows)
+        texts = self.project.as_text_mapping()
+        for row in rows:
+            text = texts.get(row["path"])
+            if total > MAX_TEXT_BYTES:
+                row["text"], row["text_omitted"] = None, (
+                    f"the project takes {total} bytes and the API cap is {MAX_TEXT_BYTES}: download the ZIP")
+            elif text is None:
+                row["text"], row["text_omitted"] = None, "not among the project files"
+            elif SECRETS.search(text.encode("utf-8", "replace")):
+                row["text"], row["text_omitted"] = None, "it contains something shaped like a credential"
+            else:
+                row["text"] = text
+        return rows
+
     def for_page(self) -> dict[str, Any]:
         """What travels to the browser. Without a single filesystem path."""
         manifest = self.package.manifest if self.package else None
@@ -76,8 +111,7 @@ class Artifact:
             "status": self.status,
             "simulated": self.simulated,
             "reason": cert.reason if cert else "",
-            "files": [{"path": f.path, "bytes": f.size, "lines": f.lines, "sha256": f.sha256}
-                      for f in (manifest.files if manifest else ())],
+            "files": self._files(manifest),
             "totals": self.project.totals,
             "verification": manifest.verification if manifest else {},
             "phases": [{"name": p.name, "status": p.status.value, "detail": p.detail}

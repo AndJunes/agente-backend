@@ -91,10 +91,16 @@ class CostPresenter:
     """Without false precision: a double costs nothing and says so, it is not dressed as $0.0000."""
 
     def present(self, run: PipelineRun, spent: BudgetSnapshot, catalog: MessageCatalog,
-                demo: str | None = None) -> dict[str, Any]:
+                demo: str | None = None, model: str = "") -> dict[str, Any]:
         if run.simulated:
             # A demo has a script and answers; without a demo there was no decision at all.
             # Saying "it came from a script" when there was no script would be inventing.
             return {"simulated": True, "demo": demo, "calls": 0,
                     "text": catalog.t("cost.simulated") if demo else catalog.t("cost.no_model")}
-        return {"simulated": False, "text": f"${spent.cost_usd:.4f}", "calls": spent.calls, "tokens": spent.tokens}
+        if spent.calls and spent.cost_usd == 0:
+            # Real calls reporting exactly 0: a free model (the provider sends no cost). "$0.0000"
+            # would suggest a spend measurement nobody made. It is free, and it says of what.
+            return {"simulated": False, "free": True, "model": model, "text": catalog.t("cost.free", model=model),
+                    "calls": spent.calls, "tokens": spent.tokens}
+        return {"simulated": False, "free": False, "text": f"${spent.cost_usd:.4f}", "calls": spent.calls,
+                "tokens": spent.tokens}

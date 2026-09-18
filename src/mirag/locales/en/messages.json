@@ -186,7 +186,8 @@
       "tests": "{count} files touched because of failing tests"
     },
     "execution": {
-      "limited": "it does not run here: {missing} is missing"
+      "limited": "it does not run here: {missing} is missing",
+      "disabled": "not run: execution is switched off (MIRAG_EXECUTION=off). The tests are delivered for the QA agent"
     },
     "documented": {
       "fails": "`{command}` fails: {header}",
@@ -318,7 +319,8 @@
   },
   "cost": {
     "simulated": "SIMULATED · $0",
-    "no_model": "NO MODEL · $0"
+    "no_model": "NO MODEL · $0",
+    "free": "FREE · $0 · {model}"
   },
   "answer": {
     "what_was_done": "What was done",

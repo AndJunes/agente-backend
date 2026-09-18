@@ -13,8 +13,27 @@ shape:
 {"error": {"code": "missing_question", "message": "'question' is required and must be a non-empty string"}}
 ```
 
-The server listens on loopback (`127.0.0.1:8000`) by default: it is a single-user local tool
-without authentication.
+The server listens on loopback (`127.0.0.1:8000`) by default. To run it for another
+application (CodeZard) see [deployment.md](deployment.md).
+
+## Authentication
+
+With `MIRAG_TOKEN` set, `POST /api/v1/chat` and the download require the header:
+
+```
+X-Mirag-Token: <the value of MIRAG_TOKEN>
+```
+
+Anything else is `401 unauthorized`, and the answer does not say whether the header is missing
+or wrong. The page, health and the other read-only routes stay open. Without `MIRAG_TOKEN`
+the server is open - the local mode - and it says so at startup. It is a secret shared between
+two servers, not user authentication: the browser talks to CodeZard, CodeZard's server talks to
+Mirag, and the token never reaches a browser. That is also why there is no CORS. With a token
+set, the bundled web page cannot ask (it does not have the token): it is meant for local use.
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"   # to generate one
+```
 
 ## Routes
 
@@ -41,7 +60,8 @@ Supported locales: `en`, `es`. An unsupported explicit locale falls back to the 
 
 ```json
 {
-  "status": "ok", "version": "2.0.0", "offline": true, "model": "anthropic/claude-haiku-4.5",
+  "status": "ok", "version": "2.0.0", "offline": true, "execution": false, "token_required": true,
+  "model": "anthropic/claude-haiku-4.5",
   "locales": ["en", "es"], "default_locale": "en",
   "interpreters": ["node", "python", "python3"],
   "features": {"retrieval_plan": true, "reranker": true, "vector_signal": false, "...": false}
@@ -82,8 +102,8 @@ Supported locales: `en`, `es`. An unsupported explicit locale falls back to the 
 ### `GET /api/v1/artifacts/{id}/download`
 
 `id` is 24 lowercase hex characters. Responses: `200 application/zip` with
-`Content-Disposition: attachment; filename="<name>.zip"` and `X-Mirag-Sha256`; `400
-malformed_id`; `410 gone` (expired or unknown); `409 integrity_error` (the package did not pass
+`Content-Disposition: attachment; filename="<name>.zip"` and `X-Mirag-Sha256` (compare it with
+`project.zip.sha256`); `400 malformed_id`; `401 unauthorized`; `410 gone` (expired or unknown); `409 integrity_error` (the package did not pass
 inspection); `500 integrity_error` (the bytes changed between inspection and delivery). The URL
 is always taken from `project.download_url` in the chat stream, never built by the client.
 
@@ -116,7 +136,8 @@ Request (`Content-Type: application/json`, at most 64 KiB):
 | `mode` | string | no | `pipeline` (default, production) or `architect` (experimental) |
 | `locale` | string | no | `en` or `es` |
 
-Validation errors are answered with `400` JSON **before** the stream starts. Once the stream
+A missing or wrong token is `401` and validation errors are `400`, both JSON and **before**
+the stream starts. Once the stream
 starts the status is `200 text/event-stream`, and every event is one `data: <json>\n\n` line.
 
 #### Stream events
@@ -202,8 +223,13 @@ was delivered and never executed. `observed.status` is one of `passed`, `failed`
 
 ```json
 {"simulated": true, "demo": "code", "calls": 0, "text": "SIMULATED · $0"}
-{"simulated": false, "text": "$0.0123", "calls": 2, "tokens": 5120}
+{"simulated": false, "free": false, "text": "$0.0123", "calls": 2, "tokens": 5120}
+{"simulated": false, "free": true, "model": "openrouter/free", "text": "FREE · $0 · openrouter/free",
+ "calls": 2, "tokens": 5120}
 ```
+
+`free` is real calls that reported a cost of exactly 0 (a free model): it is not dressed as
+`$0.0000`.
 
 **Deliverable** (single-file code branch):
 
@@ -221,7 +247,7 @@ for and the executed code replaced with a simulation.
 {
   "id": "24-hex", "name": "books-api", "status": "VERIFIED", "simulated": true,
   "reason": "the 16 markers pass, including the full CRUD over HTTP",
-  "files": [{"path": "app/main.py", "bytes": 1234, "lines": 60, "sha256": "..."}],
+  "files": [{"path": "app/main.py", "bytes": 1234, "lines": 60, "sha256": "...", "text": "...the whole file..."}],
   "totals": {"files": 14, "directories": 4, "lines": 386, "bytes": 12000},
   "verification": {"status": "VERIFIED", "reason": "...", "markers": {}, "passed": 16, "failed": 0},
   "phases": [{"name": "tests", "status": "ok", "detail": "..."}],
@@ -238,3 +264,30 @@ for and the executed code replaced with a simulation.
 `no_extra_files`, `extracts`, `hashes_match`, `no_secret_content`,
 `embedded_manifest_matches`, `builds`) and the page translates them. `download_url` is `null`
 when the package did not pass inspection: then there is no download button.
+
+`files[].text` is the full content of each file, so the code can be shown without unpacking
+anything. It can be `null`, and then `text_omitted` says why: the project exceeds 2 MB in
+total, or the file contains something shaped like a credential. An empty file is `""`, which
+is not the same as `null`.
+
+**Artifacts expire.** They live in the process memory and are lost after one hour, when more
+than 20 exist (the oldest go first), past 64 MB in total, and on every restart. Download the
+ZIP as soon as the `done` event arrives and keep it: storing the id for later is storing a
+future `410`.
+
+## When execution is off
+
+With `MIRAG_EXECUTION=off` (the default) the agent delivers the code and its tests without
+running them; running them is the QA agent's job. Then, always:
+
+| Field | Value | Meaning |
+|---|---|---|
+| `project.status` | `GENERATED` | there are files and nothing ran |
+| `project.phases` | `structure`, `syntax`, `imports`, then `execution: skipped` | the static checks did run |
+| `evidence.observed.status` | `not_executed` | nothing was observed |
+| `deliverable.status` | `not_executed` | same |
+| `step` `verification` | `skipped` | it did not fail: it did not run |
+
+**Show it as "pending QA", never as passed nor as failed.** `not_executed` is not a failure:
+nobody has looked yet. That distinction is the whole product; a client that loses it when
+rendering loses it for the user. A project with broken syntax is still `FAILED` for real.
