@@ -14,11 +14,39 @@ y `node` dentro de la imagen, y la mayor parte de las razones para tener miedo.
 Lo que queda es un servidor que lee un corpus, llama a un modelo y devuelve texto y un
 ZIP. Sigue habiendo cosas que cuidar —abajo están— pero son de otro tamaño.
 
-## Arrancarlo
+## En tu maquina
 
 ```bash
 docker compose up -d --build                      # la imagen limpia, sin dependencias
 docker compose --profile identidad up -d --build  # + identidad on-chain (stellar-sdk)
+```
+
+## En el servidor
+
+El CI construye las dos imagenes en cada push a `main`, las prueba y las publica. El
+servidor **no necesita el codigo fuente, ni Python, ni construir nada**: solo Docker.
+
+```bash
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
+
+Ese es el despliegue entero. Volver atras es cambiar `:latest` por el `:sha-xxxxxxx` de un
+commit anterior y repetir las dos lineas — el CI publica esa etiqueta en cada push.
+
+**Y no publica ningun puerto.** No es un olvido: CodeZard alcanza al agente por el nombre
+del servicio dentro de la red de Docker (`http://mirag:8000`), y ese puerto no existe
+fuera de esa red — ni en internet, ni en las interfaces del host, ni para otro proceso de
+la maquina. No hay nada que cortafuegar porque no hay nada abierto. Para mirarlo tu, un
+tunel SSH puntual.
+
+CodeZard se une a la misma red. Si tiene su propio `compose`:
+
+```yaml
+networks:
+  interna:
+    external: true
+    name: codezard_interna
 ```
 
 La página queda en http://127.0.0.1:8000 — y **solo** ahí: el puerto se publica como

@@ -1,0 +1,89 @@
+# El compose del servidor. No construye nada: se baja la imagen que el CI ya probo.
+#
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Eso es el despliegue entero. El servidor NO necesita el codigo fuente, ni Python, ni
+# construir nada: solo Docker. Y volver atras es cambiar la etiqueta por un `sha-xxxxxxx`
+# de un commit anterior y repetir las dos lineas.
+
+name: codezard
+
+services:
+  mirag:
+    image: ghcr.io/andjunes/agente-backend:latest
+    pull_policy: always
+    container_name: mirag
+    restart: unless-stopped
+
+    # FIJATE EN LO QUE NO HAY: no hay `ports:`.
+    #
+    # No es un olvido y es lo mejor de esta configuracion. CodeZard alcanza al agente por
+    # el nombre del servicio dentro de la red de Docker —http://mirag:8000— y el puerto no
+    # existe fuera de esa red: ni en internet, ni en las interfaces del host, ni para otro
+    # proceso de la misma maquina. No hay nada que cortafuegar porque no hay nada abierto.
+    #
+    # Si alguna vez necesitas mirarlo tu, no le pongas `ports`: haz un tunel puntual
+    #   ssh -N -L 8000:localhost:8000 usuario@servidor
+    #   docker compose -f docker-compose.prod.yml exec mirag ...
+    # o publicalo contra 127.0.0.1 y solo mientras lo miras.
+    networks: [interna]
+
+    environment:
+      MIRAG_HOST: 0.0.0.0        # dentro del contenedor; la red del contenedor es el limite
+      MIRAG_OFFLINE: "0"         # respuestas reales; hace falta la clave
+      MIRAG_EJECUCION: "off"     # genera codigo y tests, no los corre. Eso sera de QA.
+      MIRAG_MODELO: "openrouter/free"
+      LIMITE_USD: "0.50"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:?falta OPENROUTER_API_KEY en el .env}"
+      # Aunque no haya puerto publicado, el token sigue valiendo la pena: limita el daño
+      # si otro contenedor de esta red queda comprometido.
+      MIRAG_TOKEN: "${MIRAG_TOKEN:?falta MIRAG_TOKEN en el .env}"
+
+    security_opt: [ "no-new-privileges:true" ]
+    cap_drop: [ ALL ]
+    tmpfs: [ "/tmp:rw,noexec,nosuid,size=64m" ]
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 1.5
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # La imagen con stellar-sdk, para /api/blockchain/agent. Solo con `--profile identidad`.
+  # Recibe la clave PUBLICA y el id, nunca la semilla: mostrar la identidad son lecturas
+  # sin firmar, y firmar solo hace falta para registrar, que se hace a mano y una vez.
+  mirag-identidad:
+    profiles: ["identidad"]
+    image: ghcr.io/andjunes/agente-backend:latest-identidad
+    pull_policy: always
+    container_name: mirag-identidad
+    restart: unless-stopped
+    networks: [interna]
+    environment:
+      MIRAG_HOST: 0.0.0.0
+      MIRAG_OFFLINE: "0"
+      MIRAG_EJECUCION: "off"
+      MIRAG_MODELO: "openrouter/free"
+      LIMITE_USD: "0.50"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:?}"
+      MIRAG_TOKEN: "${MIRAG_TOKEN:?}"
+      MIRAG_BLOCKCHAIN: testnet
+      STELLAR_PUBLIC_KEY: "${STELLAR_PUBLIC_KEY:-}"
+      STELLAR_AGENT_ID: "${STELLAR_AGENT_ID:-}"
+    security_opt: [ "no-new-privileges:true" ]
+    cap_drop: [ ALL ]
+    tmpfs: [ "/tmp:rw,noexec,nosuid,size=64m" ]
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 1.5
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+networks:
+  # CodeZard se une a esta misma red y ya se hablan por nombre. Que sea `external: false`
+  # aqui significa que la crea este compose; si CodeZard tiene su propio compose, la
+  # declara como `external: true` con el mismo nombre.
+  interna:
+    name: codezard_interna

@@ -1,0 +1,159 @@
+# Lo que tiene que ser verdad en cada push, comprobado por una maquina que no se cansa.
+#
+# Este repositorio se sostiene sobre una promesa concreta: que no afirma nada que no haya
+# observado. Esa promesa vive en las 23 suites y en los contratos de las demos, y las dos
+# cosas corren sin dependencias, sin red y sin llamar al modelo — o sea que comprobarlas
+# aqui es gratis y no hay excusa para no hacerlo en cada commit.
+#
+# El motivo de que esto exista: un fallo real llego a estar en main porque solo aparecia
+# EJECUTANDO (un import perezoso encendia la ejecucion de codigo generado). Leer el codigo
+# no lo habria encontrado; correr la suite, si.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  suite:
+    name: Las 23 suites y los contratos de las demos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          # 3.14 igual que el Dockerfile y que la maquina donde se desarrolla.
+          # Comprobado que existe en el manifiesto de actions/python-versions (3.14.7,
+          # con build para linux-24.04-x64); no es una suposicion.
+          python-version: "3.14"
+
+      # Sin `pip install`: el nucleo es biblioteca estandar pura, y que eso siga siendo
+      # cierto lo comprueba tests/test_arquitectura_repo.py recorriendo el AST.
+
+      - name: Las 23 suites
+        env:
+          MIRAG_OFFLINE: "1"        # el candado: ni una llamada al modelo, coste 0
+        run: |
+          fallos=0
+          for f in tests/test_*.py; do
+            echo "::group::$f"
+            # `|| fallos=...` y no `set -e`: queremos ver TODAS las que fallan de una vez,
+            # no pararnos en la primera y tener que adivinar el resto.
+            python3 "$f" || fallos=$((fallos + 1))
+            echo "::endgroup::"
+          done
+          echo "suites con fallo: $fallos"
+          exit $fallos
+
+      - name: Los contratos de las 4 demos
+        env:
+          MIRAG_OFFLINE: "1"
+        run: |
+          salida=$(python3 demos.py todas 2>&1) || true
+          echo "$salida" | tail -40
+          cumplen=$(echo "$salida" | grep -c "CUMPLE EL CONTRATO" || true)
+          incumplen=$(echo "$salida" | grep -c "NO CUMPLE" || true)
+          echo "cumplen: $cumplen · incumplen: $incumplen"
+          # Las demos ENCIENDEN la ejecucion (demos.py lo hace en su __main__) porque son
+          # lo que demuestra la maquinaria de verificacion. En produccion sigue apagada.
+          test "$cumplen" -eq 4 && test "$incumplen" -eq 0
+
+      - name: Ninguna credencial en lo que se versiona
+        run: |
+          # Barato, y cubre el descuido mas caro: un .env commiteado por error.
+          if git ls-files | grep -qxF ".env"; then echo "::error::.env esta versionado"; exit 1; fi
+          if git grep -nIE "sk-or-v1-[A-Za-z0-9]{20,}|\bS[A-Z2-7]{55}\b" -- . ; then
+            echo "::error::hay algo con forma de credencial en el arbol versionado"; exit 1
+          fi
+          echo "sin credenciales en el arbol"
+
+  imagen:
+    name: Publicar las dos imagenes en GHCR
+    # Solo si la suite paso: una imagen que no pasa sus propios tests no se publica.
+    needs: suite
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── la imagen limpia: cero dependencias ──────────────────────────────────
+      - id: meta_base
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=sha
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: base
+          push: true
+          tags: ${{ steps.meta_base.outputs.tags }}
+          labels: ${{ steps.meta_base.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── la de identidad: + stellar-sdk, para /api/blockchain/agent ───────────
+      - id: meta_id
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          flavor: |
+            suffix=-identidad,onlatest=true
+          tags: |
+            type=raw,value=latest
+            type=sha
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: identidad
+          push: true
+          tags: ${{ steps.meta_id.outputs.tags }}
+          labels: ${{ steps.meta_id.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: La imagen publicada arranca y no lleva secretos
+        run: |
+          # Publicar algo que no arranca es peor que no publicar: el fallo aparece en el
+          # servidor, no aqui. Se comprueba contra la imagen que ACABA de subirse.
+          IMG=ghcr.io/${{ github.repository }}:latest
+          docker pull -q "$IMG"
+          docker run --rm --entrypoint sh "$IMG" -c 'test ! -f /app/.env' \
+            || { echo "::error::la imagen lleva un .env"; exit 1; }
+          docker run -d --name prueba -p 127.0.0.1:8000:8000 "$IMG"
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/ || true)
+            [ "$code" = "200" ] && break
+            sleep 1
+          done
+          echo "la pagina responde: HTTP $code"
+          test "$code" = "200"
+          # y las rutas que nunca deben servirse siguen sin servirse
+          for ruta in /.env /server.py /trazas.jsonl; do
+            c=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8000$ruta")
+            echo "  $ruta -> $c"
+            test "$c" = "404"
+          done
+          docker rm -f prueba
