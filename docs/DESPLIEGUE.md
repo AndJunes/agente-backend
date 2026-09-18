@@ -51,6 +51,16 @@ docker login --username TUUSUARIO      # y pega el token donde pide la password
 ./publicar.sh
 ```
 
+El guion deduce el nombre de la imagen del usuario con el que hiciste login, preguntandole
+al ayudante de credenciales. Hoy publica en **`andreajunes/agente-backend`**, publica, con
+las etiquetas `latest`, `<sha>` y sus variantes `-identidad`.
+
+Si `docker login` reporta exito pero luego falla cualquier `docker pull`, mira el
+`credsStore` de `~/.docker/config.json`: si apunta a un ayudante que no esta instalado
+—`desktop` sin Docker Desktop, por ejemplo— el login no guarda nada Y deja una entrada
+vacia que rompe hasta las descargas anonimas. En macOS el que siempre esta es
+`osxkeychain`.
+
 **O en GHCR**, si algun dia se desbloquea la cuenta de GitHub:
 
 ```bash
