@@ -32,7 +32,10 @@ services:
 
     environment:
       MIRAG_HOST: 0.0.0.0        # dentro del contenedor; la red del contenedor es el limite
-      MIRAG_OFFLINE: "0"         # respuestas reales; hace falta la clave
+      # "0" en produccion: respuestas reales. Se deja sobreescribir para poder ENSAYAR el
+      # despliegue sin gastar nada ni necesitar una clave de verdad: con MIRAG_OFFLINE=1
+      # en el .env arrancan las demos guionizadas y ni se toca la red del modelo.
+      MIRAG_OFFLINE: "${MIRAG_OFFLINE:-0}"
       MIRAG_EJECUCION: "off"     # genera codigo y tests, no los corre. Eso sera de QA.
       MIRAG_MODELO: "openrouter/free"
       LIMITE_USD: "0.50"
@@ -63,7 +66,7 @@ services:
     networks: [interna]
     environment:
       MIRAG_HOST: 0.0.0.0
-      MIRAG_OFFLINE: "0"
+      MIRAG_OFFLINE: "${MIRAG_OFFLINE:-0}"
       MIRAG_EJECUCION: "off"
       MIRAG_MODELO: "openrouter/free"
       LIMITE_USD: "0.50"
