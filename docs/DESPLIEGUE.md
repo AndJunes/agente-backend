@@ -38,12 +38,30 @@ Aborta si el arbol esta sucio, si el commit no esta en `origin/main`, si falla u
 o si la imagen construida no arranca. Esa regla —no se publica lo que no pasa— es la mitad
 del valor de tener un CI, y se pierde entera si publicas a mano con `docker push`.
 
-Login, una sola vez:
+El registro no esta codificado en el guion: si no dices nada, deduce el nombre del usuario
+con el que hiciste `docker login`.
+
+**Login en Docker Hub**, una sola vez. El token se crea en Docker Hub → avatar →
+*Account settings* → *Personal access tokens* → *Generate new token*, con permiso
+**Write** (Read no basta para publicar). Un token y no la contraseña: se puede revocar
+solo, sin tocar la cuenta.
+
+```bash
+docker login --username TUUSUARIO      # y pega el token donde pide la password
+./publicar.sh
+```
+
+**O en GHCR**, si algun dia se desbloquea la cuenta de GitHub:
 
 ```bash
 gh auth refresh -h github.com -s write:packages
 gh auth token | docker login ghcr.io -u AndJunes --password-stdin
+MIRAG_IMAGEN=ghcr.io/andjunes/agente-backend ./publicar.sh
 ```
+
+Docker Hub gratis da **repositorios publicos ilimitados** y 1 privado. Las descargas estan
+limitadas a 100 cada 6 horas sin autenticar y 200 autenticado — de sobra para un servidor
+que solo descarga al desplegar.
 
 **Desde GitHub Actions**: `.github/workflows/ci.yml` hace exactamente lo mismo en cada
 push a `main`. Esta escrito y sin estrenar; en cuanto se desbloquee la cuenta, funciona
