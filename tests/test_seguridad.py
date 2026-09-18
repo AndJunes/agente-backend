@@ -17,6 +17,7 @@ _RAIZ_REPO = _Path(__file__).resolve().parent.parent
 for _d in (_RAIZ_REPO, _RAIZ_REPO / "experimental", _RAIZ_REPO / "benchmarks"):
     _sys.path.insert(0, str(_d))
 import http.client
+import os
 import subprocess
 import sys
 import tempfile
@@ -99,10 +100,80 @@ def la_pagina_si_se_sirve():
 
 
 def escucha_solo_en_localhost():
+    """Antes esto era `'("127.0.0.1", 8000)' in fuente`: un grep de cadena.
+
+    Dejo de comprobar el literal porque el bind pasa a ser configurable (el contenedor
+    necesita 0.0.0.0 para que el puerto publicado llegue al proceso). El grep se rompia
+    con ese cambio sin que nada empeorase, que es la definicion de un test fragil.
+
+    Lo que se comprueba ahora es mas fuerte que la cadena: que el DEFECTO sigue siendo
+    localhost, y que abrirlo exige poner una variable a mano. Un descuido futuro que
+    cambie el defecto a 0.0.0.0 falla aqui; el grep viejo tambien habria fallado, pero
+    este ademas cubre el caso de que MIRAG_HOST venga vacia o con basura.
+    """
     import server as _srv
-    fuente = Path(_srv.__file__).read_text()
-    assert '("127.0.0.1", 8000)' in fuente, "el bind sigue abierto a todas las interfaces"
-    assert '("", 8000)' not in fuente
+    assert _srv.HOST_POR_DEFECTO == "127.0.0.1", "el defecto ya no es localhost"
+
+    previo = {v: os.environ.get(v) for v in ("MIRAG_HOST", "MIRAG_PORT")}
+    try:
+        for v in ("MIRAG_HOST", "MIRAG_PORT"):
+            os.environ.pop(v, None)
+        assert _srv.escucha_en() == ("127.0.0.1", 8000), \
+            f"sin MIRAG_HOST deberia escuchar solo en localhost, y da {_srv.escucha_en()}"
+
+        # una variable vacia o ilegible es un descuido, no un permiso para abrirse
+        for basura in ("", "   "):
+            os.environ["MIRAG_HOST"] = basura
+            assert _srv.escucha_en()[0] == "127.0.0.1", \
+                f"MIRAG_HOST={basura!r} no puede acabar abriendo el bind"
+        os.environ.pop("MIRAG_HOST", None)
+        os.environ["MIRAG_PORT"] = "no-soy-un-numero"
+        assert _srv.escucha_en() == ("127.0.0.1", 8000)
+
+        # y abrirlo tiene que ser posible, explicito y solo asi: es lo que usa Docker
+        os.environ["MIRAG_HOST"] = "0.0.0.0"
+        os.environ["MIRAG_PORT"] = "8080"
+        assert _srv.escucha_en() == ("0.0.0.0", 8080), "MIRAG_HOST explicito no se respeta"
+    finally:
+        for v, valor in previo.items():
+            if valor is None:
+                os.environ.pop(v, None)
+            else:
+                os.environ[v] = valor
+
+
+def el_codigo_generado_no_ve_las_credenciales():
+    """La skill que ejecuta lo que escribe el modelo no le pasa el entorno.
+
+    `subprocess.run` sin `env=` hereda os.environ entero. Un archivo llamado
+    `test_loquesea.py` con un `print(os.environ["OPENROUTER_API_KEY"])` dentro leia la
+    clave, y el proceso hijo tiene red. Este caso existe porque la fuga se reprodujo
+    de verdad antes de taparla.
+    """
+    import skills as _sk
+    centinela = "sk-or-v1-CENTINELA-QUE-NO-DEBE-SALIR"
+    previo = {v: os.environ.get(v) for v in ("OPENROUTER_API_KEY", "STELLAR_SECRET_KEY")}
+    try:
+        os.environ["OPENROUTER_API_KEY"] = centinela
+        os.environ["STELLAR_SECRET_KEY"] = "S-CENTINELA-SECRETO"
+        guion = ("import os\n"
+                 "print('K=', os.environ.get('OPENROUTER_API_KEY'))\n"
+                 "print('S=', os.environ.get('STELLAR_SECRET_KEY'))\n"
+                 "print('TEST:fuga:PASS')\n")
+        salida = _sk.verificar_codigo({"test_fuga.py": guion}, "python3 test_fuga.py")
+        assert centinela not in salida, "el codigo generado LEYO la clave de OpenRouter"
+        assert "S-CENTINELA-SECRETO" not in salida, "leyo la clave secreta de Stellar"
+        assert "K= None" in salida and "S= None" in salida, \
+            f"las credenciales no llegan como None:\n{salida}"
+        # y despues de limpiar el entorno, la skill tiene que SEGUIR ejecutando
+        assert "VERDE" in salida or "PASS" in salida, \
+            f"al limpiar el entorno se rompio la ejecucion:\n{salida}"
+    finally:
+        for v, valor in previo.items():
+            if valor is None:
+                os.environ.pop(v, None)
+            else:
+                os.environ[v] = valor
 
 
 # ══ B · calcular no ejecuta Python ═══════════════════════════════════════════

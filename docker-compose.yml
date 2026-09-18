@@ -1,0 +1,65 @@
+# Como se ejecuta Mirag en un servidor. El Dockerfile dice QUE hay dentro; esto dice con
+# cuanto poder corre, que es lo que de verdad decide si un despliegue es seguro.
+#
+# El modelo de amenaza, en una linea: este agente EJECUTA codigo que escribe un LLM a
+# peticion de quien abra la pagina, y NO TIENE AUTENTICACION. Todo lo de abajo asume que
+# ese codigo es hostil, porque para el caso lo es.
+
+services:
+  mirag:
+    build: .
+    image: mirag:local
+    container_name: mirag
+
+    # 127.0.0.1 EN EL LADO DEL HOST, y esto es lo mas importante del archivo.
+    # `- "8000:8000"` a secas publica en TODAS las interfaces de la maquina y, en un VPS,
+    # eso es tu agente abierto a internet sin contraseña. Con el prefijo 127.0.0.1 el
+    # puerto solo existe para la propia maquina, y se llega por tunel SSH o por Tailscale.
+    ports:
+      - "127.0.0.1:8000:8000"
+
+    environment:
+      MIRAG_HOST: 0.0.0.0        # dentro del contenedor; ver el comentario del Dockerfile
+      MIRAG_OFFLINE: "1"         # "0" para respuestas reales, y entonces hace falta clave
+      LIMITE_USD: "0.50"         # tope por peticion: el agente corta antes de pasarse
+
+    # La clave NO se escribe aqui. Un docker-compose.yml acaba en git; un .env, no.
+    # Se lee del .env de al lado, que ya esta en .gitignore y en .dockerignore.
+    env_file:
+      - path: .env
+        required: false
+
+    # ── Contencion ────────────────────────────────────────────────────────────────
+    # no-new-privileges: ni un `sudo` ni un binario setuid pueden escalar desde dentro.
+    security_opt:
+      - no-new-privileges:true
+
+    # Sin una sola capability. Este proceso abre un socket y lee archivos; no necesita
+    # poder cambiar la hora del sistema, montar nada ni tocar la red cruda.
+    cap_drop:
+      - ALL
+
+    # /tmp es donde `skills.verificar_codigo` escribe y ejecuta lo que genera el modelo.
+    # En tmpfs: vive en RAM, muere con el contenedor y no deja rastro en el disco del host.
+    #   noexec  → no se pueden ejecutar BINARIOS desde ahi. Un `python3 test.py` sigue
+    #             funcionando, porque ahi quien ejecuta es el interprete, que vive en
+    #             /usr/local/bin; lo de /tmp es solo un archivo que se lee. Comprobado.
+    #   nosuid  → un binario setuid dejado ahi no sirve de nada.
+    #   size    → un bucle que escriba sin parar llena 64 MB de RAM y muere, no el disco.
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+
+    # Techos. Sin esto, un `while True: fork()` o un minero de cripto en el codigo generado
+    # se lleva por delante la maquina entera, no solo el contenedor.
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 1.5
+
+    restart: unless-stopped
+
+    # Los logs tambien crecen sin techo si nadie lo dice.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

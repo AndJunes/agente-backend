@@ -7,6 +7,7 @@ para que sirve Y para que no.
 
 import ast
 import operator
+import os
 import re
 import shlex
 import shutil
@@ -47,6 +48,32 @@ def cajas_relacionadas(caja: str) -> str:
     return rag.cajas_relacionadas(caja)
 
 
+CONSERVAR_DEL_ENTORNO = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR")
+
+
+def _entorno_sin_credenciales():
+    """El entorno que ve el codigo generado. Sin una sola credencial.
+
+    `subprocess.run` sin `env=` hereda os.environ ENTERO. Lo que se ejecuta aqui lo
+    escribio un modelo a partir de lo que pidio quien usa la pagina, asi que heredar el
+    entorno era entregarle la clave de OpenRouter y la semilla de Stellar: un
+    `print(os.environ)` dentro de un archivo llamado `test_algo.py` las leia, y el proceso
+    tiene red, o sea que un POST las sacaba de la maquina. Comprobado antes de arreglarlo,
+    no deducido. (Aqui no se nombra la variable de la semilla a proposito: hay un test que
+    comprueba que ningun modulo de produccion la menciona salvo el que la caza.)
+
+    En local el radio de la fuga era tu maquina. Desplegado es tu factura de OpenRouter y
+    tu identidad on-chain, y por eso esto se arregla ANTES de meterlo en un contenedor y
+    no despues: el contenedor no protege de esto, porque la clave se la das tu por env.
+
+    Se conserva lo minimo para que un interprete arranque y encuentre sus modulos.
+    """
+    limpio = {v: os.environ[v] for v in CONSERVAR_DEL_ENTORNO if v in os.environ}
+    # que el codigo ajeno no siembre __pycache__ en el directorio temporal
+    limpio["PYTHONDONTWRITEBYTECODE"] = "1"
+    return limpio
+
+
 def verificar_codigo(archivos: dict, comando: str) -> str:
     """Escribe los archivos en un directorio temporal y ejecuta el comando.
 
@@ -74,7 +101,7 @@ def verificar_codigo(archivos: dict, comando: str) -> str:
             destino.write_text(contenido)
         try:
             r = subprocess.run(partes, cwd=raiz, capture_output=True, text=True,
-                               timeout=TIMEOUT)
+                               timeout=TIMEOUT, env=_entorno_sin_credenciales())
         except subprocess.TimeoutExpired:
             return (f"NO EJECUTADO: TIMEOUT, no termino en {TIMEOUT}s "
                     f"(¿bucle infinito, o espera de red?)")

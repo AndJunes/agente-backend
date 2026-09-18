@@ -9,6 +9,7 @@ tiene su propio entorno, declara `stellar-sdk`; ver [docs/blockchain.md](docs/bl
 
 ```bash
 python3 server.py          # la pantalla: http://127.0.0.1:8000
+docker compose up -d       # lo mismo, dentro de un contenedor sin privilegios
 ```
 
 Con `MIRAG_OFFLINE=1` (el valor por defecto) hay tres demos preparadas y no cuesta nada. Para
@@ -82,6 +83,20 @@ MIRAG_BLOCKCHAIN=testnet uv run --project blockchain python demos/blockchain_age
 
 Si sale `CERTIFICATE_VERIFY_FAILED`, tu Python no tiene los certificados raíz. Arreglo permanente:
 `/Applications/Python 3.14/Install Certificates.command`. Atajo: `/opt/homebrew/bin/python3`.
+
+## En un servidor
+
+```bash
+docker compose up -d --build       # http://127.0.0.1:8000, y solo ahí
+```
+
+Mirag ejecuta código que escribe un modelo y **no tiene autenticación**: el contenedor no
+elimina eso, lo acota —usuario sin privilegios, su propio código en solo lectura, `/tmp` en
+RAM, sin capabilities y con techo de CPU, memoria y procesos. El puerto se publica contra
+`127.0.0.1` a propósito; para llegar desde fuera, túnel SSH o un proxy que autentique.
+
+Cómo se hace, qué protege cada pieza y **qué sigue sin estar resuelto**, en
+[docs/DESPLIEGUE.md](docs/DESPLIEGUE.md).
 
 ## El tope de gasto
 

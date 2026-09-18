@@ -1,6 +1,7 @@
 """Servidor minimo para ver el agente en el navegador. Solo libreria estandar."""
 
 import json
+import os
 from pathlib import Path
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 import agent
@@ -479,10 +480,35 @@ class Handler(SimpleHTTPRequestHandler):
                       "proyecto": proyecto_json})
 
 
+# El bind por defecto es localhost y se queda asi: esto es una herramienta de un solo
+# usuario y NO TIENE AUTENTICACION. Quien exporte MIRAG_HOST esta abriendo un servidor sin
+# auth —y que ejecuta codigo— a su red; tiene que ser un acto deliberado y visible, no el
+# valor por defecto que se hereda sin querer.
+#
+# El unico caso previsto es el contenedor, donde "0.0.0.0" no es una relajacion sino la
+# unica forma de que el puerto publicado alcance al proceso: dentro del contenedor no hay
+# mas red que la suya. Lo que aisla ahi no es el bind, es publicar con
+# `-p 127.0.0.1:8000:8000` y no exponer el puerto al mundo. Ver docs/DESPLIEGUE.md.
+HOST_POR_DEFECTO = "127.0.0.1"
+PUERTO_POR_DEFECTO = 8000
+
+
+def escucha_en():
+    """(host, puerto) donde escuchar. Por defecto, solo localhost."""
+    host = os.environ.get("MIRAG_HOST", HOST_POR_DEFECTO).strip() or HOST_POR_DEFECTO
+    try:
+        puerto = int(os.environ.get("MIRAG_PORT", PUERTO_POR_DEFECTO))
+    except ValueError:
+        puerto = PUERTO_POR_DEFECTO
+    return host, puerto
+
+
 if __name__ == "__main__":
-    print("Abre http://localhost:8000")
+    _host, _puerto = escucha_en()
+    print(f"Abre http://localhost:{_puerto}")
+    if _host != HOST_POR_DEFECTO:
+        print(f"  AVISO: escuchando en {_host}, no solo en localhost. Este servidor no "
+              f"tiene autenticacion y ejecuta codigo: no lo expongas a una red abierta.")
     # ThreadingHTTPServer y no HTTPServer: con un solo hilo, una peticion larga
     # (el modo arquitecto son ~10 min) congela la pagina entera.
-    # 127.0.0.1 y no "": "" es 0.0.0.0, todas las interfaces. Esto es una
-    # herramienta local de un solo usuario; no tiene ni auth ni por que salir a la red.
-    ThreadingHTTPServer(("127.0.0.1", 8000), Handler).serve_forever()
+    ThreadingHTTPServer((_host, _puerto), Handler).serve_forever()

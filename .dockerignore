@@ -1,0 +1,47 @@
+# Lo que NO entra en la imagen. Una imagen es un artefacto que se publica y se comparte:
+# lo que metas aqui viaja a cualquier registro donde la subas, y queda en sus capas
+# aunque un Dockerfile posterior lo borre. Por eso el .env se excluye aqui ADEMAS de no
+# copiarse: para que no pueda colarse por un `COPY . .` distraido.
+
+# Secretos. Nunca, por ningun motivo.
+.env
+.env.*
+!.env.example
+
+# El repositorio entero: historia, remotos y credenciales de git no pintan nada dentro
+.git
+.gitignore
+
+# Entornos virtuales: se instalan dentro de la imagen, no se copian desde el host
+# (el del host ademas es de macOS/arm y la imagen es Linux)
+.venv
+**/.venv
+venv
+
+# Generado por el interprete del host
+**/__pycache__
+**/*.py[cod]
+
+# Salida de runtime: la imagen arranca limpia
+salida/
+artefactos/
+embeddings/
+trazas*.jsonl
+eval_cache.json
+*.log
+*.bak
+
+# Ruido del sistema y del editor
+.DS_Store
+.idea
+.vscode
+
+# Peso muerto para EJECUTAR: se quedan en el repositorio de git, que es donde sirven.
+reports/
+docs/
+tests/
+
+# benchmarks/ NO se excluye entero, y este es el motivo: `config.py:19` lee
+# `benchmarks/ganancias.json` en produccion (config.activar). Excluir la carpeta compilaba
+# una imagen que arrancaba y fallaba al primer uso. Se van los bancos, se queda su json.
+benchmarks/*.py
