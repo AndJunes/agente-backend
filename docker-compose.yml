@@ -34,6 +34,10 @@ services:
       MIRAG_HOST: 0.0.0.0        # dentro del contenedor; ver el comentario del Dockerfile
       MIRAG_OFFLINE: "1"         # "0" para respuestas reales, y entonces hace falta clave
       LIMITE_USD: "0.50"         # tope por peticion: el agente corta antes de pasarse
+      MIRAG_EJECUCION: "off"     # genera codigo y tests, no los corre. Eso es de QA.
+      # Modelo gratuito para la prueba de concepto. Quita esta linea para volver al de
+      # pago. Limite del gratuito: 20 peticiones/minuto y 50/dia (1.000 si compraste 10 $).
+      MIRAG_MODELO: "openrouter/free"
 
     # ── Contencion ────────────────────────────────────────────────────────────────
     # no-new-privileges: ni un `sudo` ni un binario setuid pueden escalar desde dentro.

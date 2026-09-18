@@ -183,8 +183,17 @@ def _coste(e, demo=None):
         return {"simulado": True, "demo": demo, "llamadas": 0,
                 "texto": "SIMULADO · $0" if demo else "SIN MODELO · $0"}
     p = agent.PRESUPUESTO
-    return {"simulado": False, "texto": f"${p.coste:.4f}", "llamadas": p.llamadas,
-            "tokens": p.entrada + p.salida}
+    # Tercer caso, por la misma razon que los dos de arriba: hubo llamadas de verdad y el
+    # coste reportado es exactamente 0. Pasa con los modelos gratuitos, porque el
+    # proveedor no manda campo `cost` y `PRESUPUESTO.anotar` lo cuenta como 0.0 (agent.py).
+    # Escribir "$0.0000" ahi sugiere una medicion de gasto que nadie hizo. Es gratis, y se
+    # dice — junto con el modelo, porque "gratis" sin decir de que no informa de nada.
+    if p.llamadas and p.coste == 0:
+        return {"simulado": False, "gratuito": True, "modelo": agent.MODEL,
+                "texto": f"GRATIS · $0 · {agent.MODEL}",
+                "llamadas": p.llamadas, "tokens": p.entrada + p.salida}
+    return {"simulado": False, "gratuito": False, "texto": f"${p.coste:.4f}",
+            "llamadas": p.llamadas, "tokens": p.entrada + p.salida}
 
 
 def _respuesta_pipeline(e, demo=None):

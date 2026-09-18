@@ -299,7 +299,13 @@ def ejecutar(pregunta, k=5, familia="general", al_avanzar=None, guardar=True,
             salida = _verificar(entrega)
             estado_ejec, cabecera, _ = skills.veredicto(salida)
             verde = estado_ejec == "verde"
-            anota(Paso("verificacion", "ejecutado" if verde else "error",
+            # "omitido" y no "error" cuando no se ejecuto: un paso que no corrio no ha
+            # fallado. Los cuatro estados de Paso significan cosas distintas y la linea
+            # de tiempo de la pagina los pinta distinto; llamar error a una omision es
+            # la misma clase de mentira que llamar rojo a lo que nadie miro.
+            anota(Paso("verificacion",
+                       "ejecutado" if verde else
+                       "omitido" if estado_ejec == "no_ejecutado" else "error",
                        salida.splitlines()[0] if salida else "(sin salida)", ms(),
                        "ejecucion", salida[:2000]))
 

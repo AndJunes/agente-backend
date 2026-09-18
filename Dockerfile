@@ -39,9 +39,14 @@ RUN mkdir -p /app/artefactos /app/salida \
 # es la unica forma de que un puerto publicado alcance al proceso. Lo que aisla es publicar
 # con `-p 127.0.0.1:8000:8000`. El defecto del codigo sigue siendo localhost.
 # MIRAG_OFFLINE=1 de fabrica: una imagen recien construida no puede gastar dinero de nadie.
+# MIRAG_EJECUCION=off es el defecto del codigo; se escribe aqui igualmente porque una
+# imagen deberia decir lo que hace sin que haya que ir a leer skills.py. Este agente
+# entrega el codigo y sus casos de test SIN correrlos: ejecutarlos es del agente de QA.
+# Consecuencia para esta imagen: no necesita pytest ni node, y no ejecuta nada ajeno.
 ENV MIRAG_HOST=0.0.0.0 \
     MIRAG_PORT=8000 \
-    MIRAG_OFFLINE=1
+    MIRAG_OFFLINE=1 \
+    MIRAG_EJECUCION=off
 
 USER mirag
 EXPOSE 8000

@@ -17,9 +17,21 @@ except OSError:
     # en una maquina limpia y sin claves. Solo falla quien intente llamar de verdad.
     pass
 
-MODEL = "anthropic/claude-haiku-4.5"  # cambia de modelo aqui
+# El defecto NO cambia: quien no diga nada sigue con el modelo de siempre. Pedir el modo
+# gratis es un acto explicito, y por eso vive en una variable.
+#   MIRAG_MODELO=openrouter/free  → el router de modelos gratuitos de OpenRouter, que
+#   reparte entre los que hay y filtra por las capacidades de la peticion, tool calling
+#   incluido (Mirag lo necesita para sus skills). Mismo endpoint y misma clave.
+# Lo que cuesta: 20 peticiones por minuto y 50 al dia (1.000 si alguna vez compraste
+# 10 $ de credito), y el catalogo de modelos gratuitos rota sin avisar.
+MODEL = os.environ.get("MIRAG_MODELO", "anthropic/claude-haiku-4.5").strip() \
+        or "anthropic/claude-haiku-4.5"
 LIMITE_USD = float(os.environ.get("LIMITE_USD", "0"))   # tope por ejecucion; 0 = sin tope
-URL = "https://openrouter.ai/api/v1/chat/completions"
+# Configurable por la misma razon, y solo por esa: todos los proveedores que interesan
+# (OpenRouter, NVIDIA, Groq, Gemini) hablan el mismo dialecto de chat/completions, asi que
+# cambiar de uno a otro es cambiar esta URL y el modelo. Nada mas del transporte cambia.
+URL = os.environ.get("MIRAG_LLM_URL", "https://openrouter.ai/api/v1/chat/completions").strip() \
+      or "https://openrouter.ai/api/v1/chat/completions"
 
 # El candado: por defecto NO se llama a nadie. No confiamos en acordarnos de no gastar,
 # lo impedimos en el unico sitio del proyecto que abre un socket. Para gastar de verdad:
