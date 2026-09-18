@@ -1,7 +1,11 @@
 # Mirag
 
-**Le das un problema. Mirag busca lo que sabe, propone una solución, la ejecuta, y te enseña
-exactamente en qué se apoya para confiar en ella — y en qué no.**
+**Le das un problema. Mirag busca lo que sabe, propone una solución, y te enseña exactamente
+en qué se apoya para confiar en ella — y en qué no.**
+
+Genera el código y sus casos de test, y **no los ejecuta**: eso será trabajo del agente de QA.
+Lo que no cambia es lo de siempre —que no se afirma nada que no se haya observado— y ahora eso
+significa decir `no ejecutado` en vez de fingir un aprobado.
 
 Python de biblioteca estándar. **El núcleo no tiene ninguna dependencia externa** —los 30 módulos
 de la raíz, verificado recorriendo su AST. La capa `blockchain/`, que vive fuera de esa cadena y
@@ -27,19 +31,25 @@ Y si le pides un proyecto entero, en vez de un archivo suelto:
 ```
 Creá una API REST de libros con CRUD completo. Arquitectura por dominios.
         ↓
-libros-api · 14 archivos · sus tests ejecutados · [ Descargar ZIP ]
+libros-api · 14 archivos · con sus tests, sin ejecutar · [ Descargar ZIP ]
 ```
 
 ## Lo que lo hace distinto
 
-**El estado lo decide la ejecución, nunca el modelo.** Cuatro veredictos posibles:
+**El estado lo decide la ejecución, nunca el modelo.** Cuatro veredictos posibles, y hoy el
+que sale en producción es siempre el tercero, porque la ejecución está apagada
+(`MIRAG_EJECUCION=off`). La maquinaria sigue entera y la heredará QA; las demos la encienden
+para poder enseñarla:
 
 | | |
 |---|---|
 | `verde` | hubo marcadores de test y todos pasaron |
 | `rojo` | se ejecutó y falló |
 | `sin evidencia` | terminó sin error y **no imprimió ni un marcador** — esto no es aprobar |
-| `no ejecutado` | ni llegó a correr |
+| `no ejecutado` | ni llegó a correr — **el de hoy**, y no es un suspenso: es que nadie ha mirado |
+
+Lo que sí se comprueba sin ejecutar nada, y caza fallos de verdad: estructura, sintaxis
+(`ast.parse`, en el propio proceso) e importaciones.
 
 **Cada respuesta separa tres cosas** que casi todas las herramientas mezclan: lo que el modelo
 *dice* (`MODEL CLAIM`), lo que la máquina *vio* (`OBSERVED`), y lo que queda *demostrado*
@@ -90,13 +100,19 @@ Si sale `CERTIFICATE_VERIFY_FAILED`, tu Python no tiene los certificados raíz. 
 docker compose up -d --build       # http://127.0.0.1:8000, y solo ahí
 ```
 
-Mirag ejecuta código que escribe un modelo y **no tiene autenticación**: el contenedor no
-elimina eso, lo acota —usuario sin privilegios, su propio código en solo lectura, `/tmp` en
-RAM, sin capabilities y con techo de CPU, memoria y procesos. El puerto se publica contra
-`127.0.0.1` a propósito; para llegar desde fuera, túnel SSH o un proxy que autentique.
+Al dejar de ejecutar código generado, desapareció el riesgo grande de tenerlo en un servidor.
+Lo que queda se acota igual: usuario sin privilegios, su propio código en solo lectura, `/tmp`
+en RAM, sin capabilities y con techo de CPU, memoria y procesos. El puerto se publica contra
+`127.0.0.1` a propósito, y `MIRAG_TOKEN` cierra la puerta a quien no traiga el secreto.
+
+Hay dos imágenes desde el mismo `Dockerfile`: `--target base` sin una sola dependencia, y
+`--target identidad` con `stellar-sdk` para la identidad on-chain —que funciona **sin** que la
+semilla entre en el contenedor.
 
 Cómo se hace, qué protege cada pieza y **qué sigue sin estar resuelto**, en
-[docs/DESPLIEGUE.md](docs/DESPLIEGUE.md).
+[docs/DESPLIEGUE.md](docs/DESPLIEGUE.md). El contrato HTTP para consumirlo desde otra
+aplicación —eventos, esquema del JSON, token y caducidad de los artefactos— en
+[docs/API.md](docs/API.md).
 
 ## El tope de gasto
 
@@ -111,10 +127,11 @@ Por defecto, 0,50 $ por petición.
 
 ## Lo que no está demostrado
 
-La generación de proyectos funciona de punta a punta —genera, ejecuta, repara, empaqueta, comprueba
-la integridad del ZIP y lo sirve—, pero **medido sobre 10 corridas con modelo real, cero llegaron a
-`VERIFICADO`**: fallan por sintaxis, por imports o por sus propios tests. Lo demostrado es que la
-máquina no miente cuando eso pasa. Los números están en
+La generación de proyectos funciona de punta a punta —genera, empaqueta, comprueba la integridad
+del ZIP y lo sirve—, pero cuando **sí** se ejecutaba, medido sobre 10 corridas con modelo real,
+**cero llegaron a `VERIFICADO`**: fallaban por sintaxis, por imports o por sus propios tests. Lo
+demostrado es que la máquina no miente cuando eso pasa. Ese número es también el motivo de que
+exista un agente de QA aparte: la verificación necesita más que un intento de reparación. Los números están en
 [reports/PROJECT_BENCHMARK_REPORT.md](reports/PROJECT_BENCHMARK_REPORT.md).
 
 Más límites conocidos, todos medidos, en [docs/PRODUCT_OVERVIEW.md](docs/PRODUCT_OVERVIEW.md).
