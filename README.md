@@ -1,137 +1,135 @@
 # Mirag
 
-**Le das un problema. Mirag busca lo que sabe, propone una solución, y te enseña exactamente
-en qué se apoya para confiar en ella — y en qué no.**
+**Give it a problem. Mirag searches what it knows, proposes a solution, and shows you exactly
+what that solution rests on - and what it does not.**
 
-Genera el código y sus casos de test, y **no los ejecuta**: eso será trabajo del agente de QA.
-Lo que no cambia es lo de siempre —que no se afirma nada que no se haya observado— y ahora eso
-significa decir `no ejecutado` en vez de fingir un aprobado.
+It generates the code and its test cases and, by default, **does not run them**: that will be
+the QA agent's job (`MIRAG_EXECUTION=off`). What does not change is that nothing is claimed
+that was not observed, and today that means saying `not_executed` instead of faking a pass.
 
-Python de biblioteca estándar. **El núcleo no tiene ninguna dependencia externa** —los 30 módulos
-de la raíz, verificado recorriendo su AST. La capa `blockchain/`, que vive fuera de esa cadena y
-tiene su propio entorno, declara `stellar-sdk`; ver [docs/blockchain.md](docs/blockchain.md).
+*[Leer en español](README.es.md)*
+
+Python standard library only: **the core has zero third-party dependencies** (checked by an
+architecture test). The optional Stellar identity layer declares `stellar-sdk` as an extra.
+English and Spanish are fully supported: knowledge corpus, UI, answers and language heuristics.
 
 ```bash
-python3 server.py          # la pantalla: http://127.0.0.1:8000
-docker compose up -d       # lo mismo, dentro de un contenedor sin privilegios
+pip install -e ".[dev]"
+mirag serve                 # http://127.0.0.1:8000
 ```
 
-Con `MIRAG_OFFLINE=1` (el valor por defecto) hay tres demos preparadas y no cuesta nada. Para
-respuestas reales, pon tu clave en `.env` (copia `.env.example`) y arranca con `MIRAG_OFFLINE=0`.
+With `MIRAG_OFFLINE=1` (the default) four prepared demos run end to end and nothing costs
+money. For real answers put your key in `.env` (copy `.env.example`) and start with
+`MIRAG_OFFLINE=0`.
 
-## Qué hace
-
-```
-Pregunta → Plan → Recuperación (3 índices) → Contexto → Modelo
-        → Herramienta → Verificación → Evidencia → Respuesta
-```
-
-Y si le pides un proyecto entero, en vez de un archivo suelto:
+## What it does
 
 ```
-Creá una API REST de libros con CRUD completo. Arquitectura por dominios.
+Question → Plan → Retrieval (3 indices) → Context → Model
+         → Tool → Verification → Evidence → Answer
+```
+
+And if you ask for a whole project instead of a single file:
+
+```
+Create a REST API of books with full CRUD. Architecture by domain.
         ↓
-libros-api · 14 archivos · con sus tests, sin ejecutar · [ Descargar ZIP ]
+books-api · 14 files · its tests executed · [ Download ZIP ]
 ```
 
-## Lo que lo hace distinto
+## What makes it different
 
-**El estado lo decide la ejecución, nunca el modelo.** Cuatro veredictos posibles, y hoy el
-que sale en producción es siempre el tercero, porque la ejecución está apagada
-(`MIRAG_EJECUCION=off`). La maquinaria sigue entera y la heredará QA; las demos la encienden
-para poder enseñarla:
+**Status is decided by execution, never by the model.** Four possible verdicts. With
+execution off, production always gives the fourth; the machinery stays whole and the demos
+switch it on to show it. Structure, syntax and imports are checked without running anything:
 
 | | |
 |---|---|
-| `verde` | hubo marcadores de test y todos pasaron |
-| `rojo` | se ejecutó y falló |
-| `sin evidencia` | terminó sin error y **no imprimió ni un marcador** — esto no es aprobar |
-| `no ejecutado` | ni llegó a correr — **el de hoy**, y no es un suspenso: es que nadie ha mirado |
+| `passed` | there were test markers and all of them passed |
+| `failed` | it ran and failed |
+| `no_evidence` | it finished without error and **printed not a single marker** - that is not passing |
+| `not_executed` | it never ran |
 
-Lo que sí se comprueba sin ejecutar nada, y caza fallos de verdad: estructura, sintaxis
-(`ast.parse`, en el propio proceso) e importaciones.
+**Every answer separates three things** most tools mix up: what the model *says*
+(`MODEL CLAIM`), what the machine *saw* (`OBSERVED`), and what is *proved* (`VERIFIED`). If the
+model claims the tests pass and there are no markers, a warning goes on top and its text is kept
+whole for you to judge.
 
-**Cada respuesta separa tres cosas** que casi todas las herramientas mezclan: lo que el modelo
-*dice* (`MODEL CLAIM`), lo que la máquina *vio* (`OBSERVED`), y lo que queda *demostrado*
-(`VERIFIED`). Si el modelo afirma que los tests pasan y no hay marcadores, sale un aviso encima y
-su texto se deja entero para que lo juzgues.
+**If the corpus does not cover what you ask, it says so before answering.**
 
-**Si el corpus no cubre lo que preguntas, lo dice antes de responder.**
+## Repository layout
 
-## Cómo está organizado
-
-| | |
-|---|---|
-| **raíz** | los ~30 módulos de producción: `server.py`, `pipeline.py`, `recuperacion.py`, `skills.py`… |
-| `conocimientos/` | el corpus: 19 cajas de backend en formato *knowledge item* |
-| `tests/` | 21 suites, sin pytest — cada archivo es su propio runner |
-| `demos/` | demos ejecutables a mano |
-| `benchmarks/` | los bancos de medición y sus datos |
-| `experimental/` | existe, funciona, **no está en el camino de producción** |
-| `docs/` | cómo se usa Mirag |
-| `blockchain/` | identidad Stellar 8004 — la única carpeta con dependencias externas |
-| `reports/` | cómo llegamos hasta aquí, y qué se descubrió por el camino |
-
-Detalle en [REPOSITORY_STRUCTURE.md](REPOSITORY_STRUCTURE.md), lo que se queda donde está y por qué
-en [RELOCATION_EXCEPTIONS.md](RELOCATION_EXCEPTIONS.md), y cómo se llegó a esta forma —con los tres
-problemas que la mudanza destapó— en
-[reports/REPOSITORY_CLEANUP_REPORT.md](reports/REPOSITORY_CLEANUP_REPORT.md).
-
-## Correrlo
-
-```bash
-python3 server.py                      # la pantalla
-python3 demos.py todas                 # las 4 demos canónicas, con el candado puesto, $0
-python3 demos/demo_proyecto.py         # genera un proyecto entero y lo empaqueta
-python3 benchmarks/eval.py             # mide la recuperación
-python3 benchmarks/banco_proyectos.py 10   # cuántos proyectos de diez salen verificados
-for f in tests/test_*.py; do python3 "$f"; done   # la suite, sin llamar al modelo
-
-# la identidad on-chain del Backend Agent (Stellar Testnet, $0)
-MIRAG_BLOCKCHAIN=testnet uv run --project blockchain python demos/blockchain_agent_demo.py
+```
+.
+├── src/mirag/               the package (see docs/en/architecture.md)
+│   ├── locales/{en,es}/     messages, UI strings, language heuristics, corpus markers
+│   ├── knowledge/{en,es}/   the knowledge corpus: 19 senior-backend boxes per language
+│   └── web/index.html       the page
+├── tests/                   unit, integration and architecture suites (pytest)
+├── benchmarks/              retrieval and project benchmarks, datasets and results
+├── scripts/                 manual demos (Stellar identity)
+├── docs/{en,es}/            documentation in both languages
+└── docs/history/            the reports that explain how the project got here (Spanish)
 ```
 
-Si sale `CERTIFICATE_VERIFY_FAILED`, tu Python no tiene los certificados raíz. Arreglo permanente:
-`/Applications/Python 3.14/Install Certificates.command`. Atajo: `/opt/homebrew/bin/python3`.
-
-## En un servidor
+## Running it
 
 ```bash
-docker compose up -d --build       # http://127.0.0.1:8000, y solo ahí
+mirag serve                          # the page (offline, $0)
+mirag demo all --locale es           # the 4 canonical demos, with their contracts checked
+mirag ask "What is an idempotency key?" --locale en
+mirag features                       # which pipeline stages are on, and why
+docker compose up -d                 # the same, in an unprivileged container
 ```
 
-Al dejar de ejecutar código generado, desapareció el riesgo grande de tenerlo en un servidor.
-Lo que queda se acota igual: usuario sin privilegios, su propio código en solo lectura, `/tmp`
-en RAM, sin capabilities y con techo de CPU, memoria y procesos. El puerto se publica contra
-`127.0.0.1` a propósito, y `MIRAG_TOKEN` cierra la puerta a quien no traiga el secreto.
+`make run`, `make lint`, `make demo` do the same on systems with `make`.
 
-Hay dos imágenes desde el mismo `Dockerfile`: `--target base` sin una sola dependencia, y
-`--target identidad` con `stellar-sdk` para la identidad on-chain —que funciona **sin** que la
-semilla entre en el contenedor.
+## The spending cap
 
-Cómo se hace, qué protege cada pieza y **qué sigue sin estar resuelto**, en
-[docs/DESPLIEGUE.md](docs/DESPLIEGUE.md). El contrato HTTP para consumirlo desde otra
-aplicación —eventos, esquema del JSON, token y caducidad de los artefactos— en
-[docs/API.md](docs/API.md).
-
-## El tope de gasto
-
-Cada llamada trae el coste real de OpenRouter, así que el agente **corta antes de pasarse**, no
-después de la factura:
+Every call returns the real OpenRouter cost, so the agent **stops before going over**, not
+after the invoice:
 
 ```bash
-LIMITE_USD=0.20 MIRAG_OFFLINE=0 python3 server.py
+MIRAG_BUDGET_USD=0.20 MIRAG_OFFLINE=0 mirag serve
 ```
 
-Por defecto, 0,50 $ por petición.
+The default is $0.50 per request.
 
-## Lo que no está demostrado
+## The API
 
-La generación de proyectos funciona de punta a punta —genera, empaqueta, comprueba la integridad
-del ZIP y lo sirve—, pero cuando **sí** se ejecutaba, medido sobre 10 corridas con modelo real,
-**cero llegaron a `VERIFICADO`**: fallaban por sintaxis, por imports o por sus propios tests. Lo
-demostrado es que la máquina no miente cuando eso pasa. Ese número es también el motivo de que
-exista un agente de QA aparte: la verificación necesita más que un intento de reparación. Los números están en
-[reports/PROJECT_BENCHMARK_REPORT.md](reports/PROJECT_BENCHMARK_REPORT.md).
+`POST /api/v1/chat` streams Server-Sent Events; generated projects download from
+`GET /api/v1/artifacts/{id}/download`. The full contract is in [docs/en/api.md](docs/en/api.md).
 
-Más límites conocidos, todos medidos, en [docs/PRODUCT_OVERVIEW.md](docs/PRODUCT_OVERVIEW.md).
+## On a server
+
+```bash
+docker compose up -d --build       # http://127.0.0.1:8000, and only there
+```
+
+Unprivileged user, its own code read-only, `/tmp` in RAM, no capabilities and CPU, memory and
+process ceilings. The port is published against `127.0.0.1` on purpose, and `MIRAG_TOKEN`
+shuts the door on whoever does not bring the secret. Two images from the same `Dockerfile`:
+`--target base` without a single dependency, and `--target identidad` with `stellar-sdk`.
+How, what each piece protects and **what is still not solved**:
+[docs/en/deployment.md](docs/en/deployment.md).
+
+## What is not proven
+
+Project generation works end to end - it generates, runs, repairs, packages, checks the
+integrity of the ZIP and serves it - but, **measured over 10 runs with a real model, none
+reached `VERIFIED`**: they fail on syntax, imports or their own tests. What is proven is that
+the machine does not lie when that happens. See
+[docs/history/reports/PROJECT_BENCHMARK_REPORT.md](docs/history/reports/PROJECT_BENCHMARK_REPORT.md).
+
+## Documentation
+
+| | English | Español |
+|---|---|---|
+| Architecture | [docs/en/architecture.md](docs/en/architecture.md) | [docs/es/architecture.md](docs/es/architecture.md) |
+| HTTP API | [docs/en/api.md](docs/en/api.md) | [docs/es/api.md](docs/es/api.md) |
+| Deployment | [docs/en/deployment.md](docs/en/deployment.md) | [docs/es/deployment.md](docs/es/deployment.md) |
+| i18n | [docs/en/i18n.md](docs/en/i18n.md) | [docs/es/i18n.md](docs/es/i18n.md) |
+| Configuration | [docs/en/configuration.md](docs/en/configuration.md) | [docs/es/configuration.md](docs/es/configuration.md) |
+| Development | [docs/en/development.md](docs/en/development.md) | [docs/es/development.md](docs/es/development.md) |
+| Stellar identity | [docs/en/blockchain.md](docs/en/blockchain.md) | [docs/es/blockchain.md](docs/es/blockchain.md) |
+| Changelog | [CHANGELOG.md](CHANGELOG.md) | |

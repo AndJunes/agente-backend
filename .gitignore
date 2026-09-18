@@ -1,54 +1,46 @@
-# Que NO entra al repositorio. La regla: si una ejecucion lo puede volver a crear, o si es
-# un secreto, no se versiona. Todo lo demas si, incluido lo que parece documentacion vieja:
-# los informes son la evidencia del proyecto, no sobras.
+# What does NOT enter the repository. The rule: if a run can recreate it, or it is a secret,
+# it is not versioned. Everything else is, including what looks like old documentation:
+# the reports in docs/history are the evidence of the project, not leftovers.
 
-# Secretos. Nunca. .env.example SI se versiona.
+# Secrets. Never. .env.example IS versioned.
 .env
 .env.local
 .env.*.local
 
-# Generado por el interprete
+# Interpreter and tooling caches
 __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.coverage
+htmlcov/
+build/
+dist/
 
-# Entornos virtuales. `blockchain/.venv/` es el unico que existe hoy; el patron desnudo
-# cubre cualquier otro que alguien cree al clonar. `blockchain/pyproject.toml` y
-# `blockchain/uv.lock` SI se versionan: son la declaracion de la dependencia, y hay un
-# test que los lee.
+# Virtual environments
 .venv/
 venv/
 env/
 
-# Salida de runtime: se reescribe en cada ejecucion
-salida/
-artefactos/
-embeddings/
-
-# Trazas y caches de medicion: crecen sin techo (trazas_noche.jsonl ya pesa 5 MB).
-# Los tests que las leen se las crean ellos mismos; un clon limpio no las necesita.
-trazas*.jsonl
-eval_cache.json
+# Runtime data (MIRAG_DATA_DIR defaults to ./var in a checkout): outputs, artifacts,
+# traces and caches are rewritten on every run and traces grow without a ceiling.
+var/
 *.log
 
-# Backups sueltos: si hace falta uno, que sea un commit
+# Loose backups: if one is needed, make it a commit
 *.bak
 
-# Ruido del sistema y del editor
+# OS and editor noise
 .DS_Store
 .idea/
 .vscode/
 *.swp
 
-# NO se ignora, y es a proposito:
-#   conocimientos/       el corpus; sin el, rag.py no tiene nada que recuperar
-#   benchmarks/*.json    ganancias.json la LEE produccion (config.activar)
-#   tests/fixtures/      repos de ejemplo que los tests necesitan
-#   docs/ reports/       la documentacion y los informes son parte del proyecto, y
-#                        tests/test_arquitectura_repo.py comprueba que ambas existan
-#   experimental/        no esta en produccion, pero es codigo y tiene tests que lo cubren
-#   blockchain/**.py     la capa entera: es codigo, no salida de runtime
-#   blockchain/uv.lock   la version exacta de stellar-sdk que se probo
+# NOT ignored, on purpose:
+#   src/mirag/knowledge/                  the corpus: without it retrieval has nothing to search
+#   src/mirag/resources/feature_gains.json  production READS it (the feature gate)
+#   benchmarks/results/                   the measurements behind the gate
+#   tests/fixtures/                       sample repositories the tests need
+#   docs/history/                         the reports are part of the project

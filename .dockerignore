@@ -1,47 +1,40 @@
-# Lo que NO entra en la imagen. Una imagen es un artefacto que se publica y se comparte:
-# lo que metas aqui viaja a cualquier registro donde la subas, y queda en sus capas
-# aunque un Dockerfile posterior lo borre. Por eso el .env se excluye aqui ADEMAS de no
-# copiarse: para que no pueda colarse por un `COPY . .` distraido.
+# What does NOT enter the build context. An image is published and shared: whatever gets in
+# travels to every registry it is pushed to and stays in its layers even if a later step
+# deletes it. The Dockerfile only copies src/, and this is the second lock on the door.
 
-# Secretos. Nunca, por ningun motivo.
+# Secrets. Never, for any reason.
 .env
 .env.*
 !.env.example
 
-# El repositorio entero: historia, remotos y credenciales de git no pintan nada dentro
+# The repository itself: history, remotes and git credentials have no business inside
 .git
 .gitignore
 
-# Entornos virtuales: se instalan dentro de la imagen, no se copian desde el host
-# (el del host ademas es de macOS/arm y la imagen es Linux)
+# Virtual environments and interpreter output from the host
 .venv
 **/.venv
 venv
-
-# Generado por el interprete del host
 **/__pycache__
 **/*.py[cod]
+.mypy_cache
+.ruff_cache
+.pytest_cache
 
-# Salida de runtime: la imagen arranca limpia
-salida/
-artefactos/
-embeddings/
-trazas*.jsonl
-eval_cache.json
+# Runtime output: the image starts clean
+var/
 *.log
 *.bak
 
-# Ruido del sistema y del editor
+# System and editor noise
 .DS_Store
 .idea
 .vscode
 
-# Peso muerto para EJECUTAR: se quedan en el repositorio de git, que es donde sirven.
-reports/
+# Dead weight for RUNNING: they stay in git, where they are useful. Production reads the
+# measured gains from src/mirag/resources/feature_gains.json, not from benchmarks/.
+benchmarks/
 docs/
+reports/
+scripts/
 tests/
-
-# benchmarks/ NO se excluye entero, y este es el motivo: `config.py:19` lee
-# `benchmarks/ganancias.json` en produccion (config.activar). Excluir la carpeta compilaba
-# una imagen que arrancaba y fallaba al primer uso. Se van los bancos, se queda su json.
-benchmarks/*.py

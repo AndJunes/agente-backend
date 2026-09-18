@@ -1,0 +1,217 @@
+"""The test harness is written by Mirag, not by the model. That is why it is evidence.
+
+THE PROBLEM IT CLOSES
+    If the integration tests are written by the same model that wrote the code, the model
+    can approve itself: its "CRUD test" can call functions instead of doing HTTP, or print
+    ``TEST:crud:PASS`` on import. The markers would be green and nothing would have run.
+
+    Here Mirag injects its own probes and **the identifiers carry a nonce generated in
+    Python on every run**. The model cannot guess ``TEST:crud_post_a3f19c2b:PASS``, so it
+    cannot fabricate it. The only thing it controls is whether its server really answers.
+
+THE THREE PROBES
+    deps   which external dependencies exist ON THIS machine. Observed, not assumed.
+    tests  runs the project tests and emits one marker per test, with its id.
+    crud   starts the real server and hits it over HTTP: POST, GET, GET id, PUT (checking that
+           the PUT PERSISTS), DELETE, and GET id -> 404.
+
+    They are written only into the temporary execution folder. They never enter the artifact
+    nor the ZIP.
+
+THE CONTRACT THE PROJECT MUST MEET
+    The entrypoint exposes ``create_server(port=0, db=":memory:")`` which RETURNS a server
+    without starting it. Nothing runs on import. If it is not met, the probe says so with a
+    FAIL marker - never with a silence.
+
+The CRUD probe uses a watchdog thread instead of ``signal.SIGALRM``, which does not exist on
+Windows.
+"""
+
+from __future__ import annotations
+
+import re
+import secrets
+from collections.abc import Mapping
+from typing import Any
+
+PROBE_TIMEOUT_S = 20
+"""Below the runner timeout: the probe must die FIRST and keep its output."""
+OPERATIONS = ("create", "list", "get", "update", "persists", "delete", "deleted")
+PROBE_PREFIX = "_probe_"
+DEFAULT_RESOURCE = "/books"
+RESOURCE = re.compile(r"\A(/[A-Za-z0-9_-]+)+\Z")
+
+
+def safe_resource(resource: object) -> str:
+    """The REST path the CRUD probe hits, or :data:`DEFAULT_RESOURCE`.
+
+    It comes from the MODEL's spec and ends up inside code Mirag writes and runs. Pasted as
+    is, a resource like ``/books", None); mark(0, True) ...`` was valid Python that printed
+    this run's nonce markers from inside the probe: the model approving itself, which is the
+    one thing the probe exists to prevent. So it is validated here and embedded with ``repr``.
+    """
+    clean = "/" + str(resource or "").strip().strip("/")
+    return clean if RESOURCE.match(clean) else DEFAULT_RESOURCE
+
+
+def nonce() -> str:
+    return secrets.token_hex(4)
+
+
+def crud_ids(mark: str) -> tuple[str, ...]:
+    return tuple(f"crud_{op}_{mark}" for op in OPERATIONS)
+
+
+def deps_probe(roots: list[str]) -> dict[str, str]:
+    return {f"{PROBE_PREFIX}deps.py": f'''\
+"""Which external dependencies exist here. Written by Mirag."""
+import importlib.util as u
+for module in {sorted(roots)!r}:
+    print(f"DEP:{{module}}:" + ("INSTALLED" if u.find_spec(module) else "MISSING"), flush=True)
+print("DEP:_probe:OK", flush=True)
+'''}
+
+
+def tests_probe(start_dir: str = "tests", minimum: int = 1) -> dict[str, str]:
+    """A unittest runner that emits one marker per test. It takes away from the model the
+    duty of printing them, which is the number one cause of NO EVIDENCE."""
+    return {f"{PROBE_PREFIX}tests.py": f'''\
+"""Runs the project tests and emits one marker per test. Written by Mirag."""
+import os, sys, unittest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+class Markers(unittest.TextTestResult):
+    def _id(self, test):
+        return str(test).split()[0].replace(".", "_")[:60] or "unnamed"
+    def addSuccess(self, test):
+        super().addSuccess(test); print(f"TEST:{{self._id(test)}}:PASS", flush=True)
+    def addFailure(self, test, err):
+        super().addFailure(test, err); print(f"TEST:{{self._id(test)}}:FAIL", flush=True)
+    def addError(self, test, err):
+        super().addError(test, err); print(f"TEST:{{self._id(test)}}:FAIL", flush=True)
+
+if __name__ == "__main__":
+    suite = unittest.defaultTestLoader.discover({start_dir!r}, top_level_dir=".")
+    result = unittest.TextTestRunner(resultclass=Markers, verbosity=0).run(suite)
+    if result.testsRun < {minimum}:
+        # An import that fails inside a silent try leaves 0 tests and exit 0.
+        # That is NOT passing: nobody knows what was tested.
+        print("TEST:test_coverage:FAIL", flush=True)
+        print(f"{{result.testsRun}} tests ran and at least {minimum} were expected", flush=True)
+        sys.exit(1)
+    sys.exit(1 if (result.failures or result.errors) else 0)
+'''}
+
+
+def crud_probe(
+    entrypoint_module: str,
+    mark: str,
+    resource: str = "/books",
+    sample: Mapping[str, Any] | None = None,
+    change: Mapping[str, Any] | None = None,
+) -> dict[str, str]:
+    """The integration probe: real HTTP against the project's server.
+
+    Every value that reaches the generated source is embedded with ``repr`` (a literal can
+    never become code) and the resource is validated by :func:`safe_resource`.
+    """
+    sample = dict(sample or {"title": "Hopscotch", "author": "Cortazar"})
+    change = dict(change or {"title": "Hopscotch (2nd ed)", "author": "Cortazar"})
+    field = next(iter(change))
+    resource = safe_resource(resource)
+    ids = crud_ids(mark)
+    return {f"{PROBE_PREFIX}crud.py": f'''\
+"""Real CRUD over HTTP against the project's server. Written by Mirag, not by the model.
+
+The identifiers carry a nonce of this run: the model cannot fabricate them.
+"""
+import importlib, json, os, sys, threading, urllib.error, urllib.request
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+IDS = {list(ids)!r}
+ENTRYPOINT = {entrypoint_module!r}
+RESOURCE = {resource!r}
+def mark(i, ok):
+    print(f"TEST:{{IDS[i]}}:" + ("PASS" if ok else "FAIL"), flush=True)
+def fail_all(start=0):
+    for i in range(start, len(IDS)):
+        mark(i, False)
+
+def watchdog():
+    print("the probe stopped itself before the runner limit", flush=True)
+    fail_all()
+    os._exit(1)
+timer = threading.Timer({PROBE_TIMEOUT_S}, watchdog)
+timer.daemon = True
+timer.start()
+
+def call(base, method, path, body=None):
+    data = json.dumps(body).encode() if body is not None else None
+    request = urllib.request.Request(base + path, data=data, method=method,
+                                     headers={{"Content-Type": "application/json"}})
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            raw = response.read()
+            return response.status, (json.loads(raw) if raw else {{}})
+    except urllib.error.HTTPError as error:
+        raw = error.read()
+        try:
+            return error.code, (json.loads(raw) if raw else {{}})
+        except ValueError:
+            return error.code, {{}}
+    except Exception as error:
+        print(f"the request {{method}} {{path}} blew up: {{type(error).__name__}}: {{error}}", flush=True)
+        return 0, {{}}
+
+server = None
+try:
+    # importlib and not `from X import`: a module path that is not an identifier ('my-api')
+    # must end in FAIL markers, not in a SyntaxError of the probe itself (a silence).
+    create_server = importlib.import_module(ENTRYPOINT).create_server
+except Exception as error:
+    print(f"could not import create_server from {{ENTRYPOINT}}: {{type(error).__name__}}: {{error}}", flush=True)
+    fail_all(); timer.cancel(); sys.exit(1)
+
+try:
+    server = create_server(port=0)
+    base = f"http://127.0.0.1:{{server.server_address[1]}}"
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+except Exception as error:
+    print(f"create_server did not start: {{type(error).__name__}}: {{error}}", flush=True)
+    fail_all(); timer.cancel(); sys.exit(1)
+
+try:
+    status, created = call(base, "POST", RESOURCE, {sample!r})
+    ident = created.get("id") if isinstance(created, dict) else None
+    mark(0, status in (200, 201) and ident is not None)
+    if ident is None:
+        fail_all(1); timer.cancel(); sys.exit(1)
+    item = f"{{RESOURCE}}/{{ident}}"
+
+    status, listing = call(base, "GET", RESOURCE)
+    mark(1, status == 200 and isinstance(listing, list)
+         and any(str(x.get("id")) == str(ident) for x in listing if isinstance(x, dict)))
+
+    status, one = call(base, "GET", item)
+    mark(2, status == 200 and isinstance(one, dict) and str(one.get("id")) == str(ident))
+
+    status, _ = call(base, "PUT", item, {change!r})
+    mark(3, status in (200, 204))
+
+    # that the PUT PERSISTS, not that a PUT handler exists
+    status, after = call(base, "GET", item)
+    mark(4, status == 200 and isinstance(after, dict) and after.get({field!r}) == {change[field]!r})
+
+    status, _ = call(base, "DELETE", item)
+    mark(5, status in (200, 202, 204))
+
+    status, _ = call(base, "GET", item)
+    mark(6, status == 404)
+finally:
+    timer.cancel()
+    if server is not None:
+        try:
+            server.shutdown(); server.server_close()
+        except Exception:
+            pass
+'''}

@@ -1,0 +1,11 @@
+{
+  "locale": "en",
+  "description": "The legacy task bench tasks (benchmarks/banco.py), translated to English.",
+  "tasks": [
+    {"name": "booking", "request": "Bookings API for a class with a single seat. Two users can book at the same time: two bookings must never be assigned to the same seat. Node.js."},
+    {"name": "payment", "request": "POST /payments endpoint with orderId and amount, an Idempotency-Key and no double charge under concurrent retries. Node.js."},
+    {"name": "stock", "request": "Reserve stock of a product without overselling when simultaneous orders arrive. Node.js."},
+    {"name": "rate_limit", "request": "Per-user rate limiter with a token bucket, safe under concurrent requests. Node.js."},
+    {"name": "queue", "request": "Queue consumer that never applies the same message twice even if it is redelivered. Node.js."}
+  ]
+}

@@ -1,48 +1,43 @@
-# El compose del servidor. No construye nada: se baja la imagen que el CI ya probo.
+# The server's compose. It builds nothing: it pulls the image that was already checked.
 #
 #   docker compose -f docker-compose.prod.yml pull
 #   docker compose -f docker-compose.prod.yml up -d
 #
-# Eso es el despliegue entero. El servidor NO necesita el codigo fuente, ni Python, ni
-# construir nada: solo Docker. Y volver atras es cambiar la etiqueta por un `sha-xxxxxxx`
-# de un commit anterior y repetir las dos lineas.
+# That is the whole deployment. The server needs neither the source code, nor Python, nor to
+# build anything: only Docker. Rolling back is setting MIRAG_TAG to an earlier sha and
+# repeating the two lines.
 
 name: codezard
 
 services:
   mirag:
-    # Misma variable que usa publicar.sh, para no tener el nombre en dos sitios.
+    # Same variable scripts/publish.sh uses, so the name lives in one place.
     image: "${MIRAG_IMAGEN:-andreajunes/agente-backend}:${MIRAG_TAG:-latest}"
     pull_policy: always
     container_name: mirag
     restart: unless-stopped
 
-    # FIJATE EN LO QUE NO HAY: no hay `ports:`.
-    #
-    # No es un olvido y es lo mejor de esta configuracion. CodeZard alcanza al agente por
-    # el nombre del servicio dentro de la red de Docker —http://mirag:8000— y el puerto no
-    # existe fuera de esa red: ni en internet, ni en las interfaces del host, ni para otro
-    # proceso de la misma maquina. No hay nada que cortafuegar porque no hay nada abierto.
-    #
-    # Si alguna vez necesitas mirarlo tu, no le pongas `ports`: haz un tunel puntual
-    #   ssh -N -L 8000:localhost:8000 usuario@servidor
-    #   docker compose -f docker-compose.prod.yml exec mirag ...
-    # o publicalo contra 127.0.0.1 y solo mientras lo miras.
+    # NOTICE WHAT IS MISSING: there is no `ports:`. Not an oversight, it is the best part of
+    # this configuration. CodeZard reaches the agent by service name inside the Docker network
+    # - http://mirag:8000 - and the port does not exist outside that network: not on the
+    # internet, not on the host interfaces, not for any other process on the machine. There is
+    # nothing to firewall because nothing is open. To look at it yourself, use a one-off
+    # SSH tunnel, or publish it against 127.0.0.1 only while you look.
     networks: [interna]
 
     environment:
-      MIRAG_HOST: 0.0.0.0        # dentro del contenedor; la red del contenedor es el limite
-      # "0" en produccion: respuestas reales. Se deja sobreescribir para poder ENSAYAR el
-      # despliegue sin gastar nada ni necesitar una clave de verdad: con MIRAG_OFFLINE=1
-      # en el .env arrancan las demos guionizadas y ni se toca la red del modelo.
+      MIRAG_HOST: 0.0.0.0          # inside the container; the container network is the boundary
+      # "0" in production: real answers. It can be overridden to REHEARSE the deployment
+      # without spending anything or needing a real key: with MIRAG_OFFLINE=1 in the .env the
+      # scripted demos answer and the model's network is never touched.
       MIRAG_OFFLINE: "${MIRAG_OFFLINE:-0}"
-      MIRAG_EJECUCION: "off"     # genera codigo y tests, no los corre. Eso sera de QA.
-      MIRAG_MODELO: "openrouter/free"
-      LIMITE_USD: "0.50"
-      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:?falta OPENROUTER_API_KEY en el .env}"
-      # Aunque no haya puerto publicado, el token sigue valiendo la pena: limita el daño
-      # si otro contenedor de esta red queda comprometido.
-      MIRAG_TOKEN: "${MIRAG_TOKEN:?falta MIRAG_TOKEN en el .env}"
+      MIRAG_EXECUTION: "off"       # generates code and tests, does not run them. That is QA's.
+      MIRAG_MODEL: "openrouter/free"
+      MIRAG_BUDGET_USD: "0.50"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is missing from .env}"
+      # Even with no published port the token is worth it: it limits the damage if another
+      # container on this network is compromised.
+      MIRAG_TOKEN: "${MIRAG_TOKEN:?MIRAG_TOKEN is missing from .env}"
 
     security_opt: [ "no-new-privileges:true" ]
     cap_drop: [ ALL ]
@@ -54,9 +49,9 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
 
-  # La imagen con stellar-sdk, para /api/blockchain/agent. Solo con `--profile identidad`.
-  # Recibe la clave PUBLICA y el id, nunca la semilla: mostrar la identidad son lecturas
-  # sin firmar, y firmar solo hace falta para registrar, que se hace a mano y una vez.
+  # The image with stellar-sdk, for /api/v1/blockchain/agent. Only with `--profile identidad`.
+  # It gets the PUBLIC key and the id, never the seed: showing the identity takes unsigned
+  # reads, and signing is only needed to register, which is done by hand, once.
   mirag-identidad:
     profiles: ["identidad"]
     image: "${MIRAG_IMAGEN:-andreajunes/agente-backend}:${MIRAG_TAG:-latest}-identidad"
@@ -67,9 +62,9 @@ services:
     environment:
       MIRAG_HOST: 0.0.0.0
       MIRAG_OFFLINE: "${MIRAG_OFFLINE:-0}"
-      MIRAG_EJECUCION: "off"
-      MIRAG_MODELO: "openrouter/free"
-      LIMITE_USD: "0.50"
+      MIRAG_EXECUTION: "off"
+      MIRAG_MODEL: "openrouter/free"
+      MIRAG_BUDGET_USD: "0.50"
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:?}"
       MIRAG_TOKEN: "${MIRAG_TOKEN:?}"
       MIRAG_BLOCKCHAIN: testnet
@@ -86,8 +81,7 @@ services:
       options: { max-size: "10m", max-file: "3" }
 
 networks:
-  # CodeZard se une a esta misma red y ya se hablan por nombre. Que sea `external: false`
-  # aqui significa que la crea este compose; si CodeZard tiene su propio compose, la
-  # declara como `external: true` con el mismo nombre.
+  # CodeZard joins this same network and they talk by name. This compose creates it; if
+  # CodeZard has its own compose, it declares it as `external: true` with the same name.
   interna:
     name: codezard_interna

@@ -1,14 +1,14 @@
-# Como se ejecuta Mirag en un servidor. El Dockerfile dice QUE hay dentro; esto dice con
-# cuanto poder corre, que es lo que de verdad decide si un despliegue es seguro.
+# How Mirag runs on a machine you control. The Dockerfile says WHAT is inside; this says with
+# how much power it runs, which is what really decides whether a deployment is safe.
 #
-# El modelo de amenaza, en una linea: este agente EJECUTA codigo que escribe un LLM a
-# peticion de quien abra la pagina, y NO TIENE AUTENTICACION. Todo lo de abajo asume que
-# ese codigo es hostil, porque para el caso lo es.
+# Threat model in one line: this agent calls a paid model on behalf of whoever reaches its
+# port and hands out generated code. It no longer runs that code (MIRAG_EXECUTION=off), but
+# everything below still assumes a hostile request, because containment is cheap.
 
-# Dos destinos desde el mismo Dockerfile. `mirag` es el de siempre, sin una sola
-# dependencia. `mirag-identidad` añade stellar-sdk y solo arranca si lo pides:
-#   docker compose up -d                            → la imagen limpia
-#   docker compose --profile identidad up -d        → la que habla con Stellar
+# Two targets from the same Dockerfile. `mirag` is the usual one, without a single
+# dependency. `mirag-identidad` adds stellar-sdk and only starts if you ask for it:
+#   docker compose up -d                            → the clean image
+#   docker compose --profile identidad up -d        → the one that talks to Stellar
 services:
   mirag:
     build:
@@ -17,68 +17,60 @@ services:
     image: mirag:base
     container_name: mirag
 
-    # 127.0.0.1 EN EL LADO DEL HOST, y esto es lo mas importante del archivo.
-    # `- "8000:8000"` a secas publica en TODAS las interfaces de la maquina y, en un VPS,
-    # eso es tu agente abierto a internet sin contraseña. Con el prefijo 127.0.0.1 el
-    # puerto solo existe para la propia maquina, y se llega por tunel SSH o por Tailscale.
+    # 127.0.0.1 ON THE HOST SIDE, and this is the most important line of the file. A bare
+    # `- "8000:8000"` publishes on EVERY interface and, on a VPS, that is your agent open to
+    # the internet. With the prefix the port only exists for the machine itself; reach it
+    # through an SSH tunnel or Tailscale.
     ports:
       - "127.0.0.1:8000:8000"
 
-
-    # La clave NO se escribe aqui. Un docker-compose.yml acaba en git; un .env, no.
-    # Tampoco se usa `env_file`, y el motivo es concreto: env_file mete el .env ENTERO,
-    # incluida STELLAR_SECRET_KEY, que este contenedor no necesita para nada (ver abajo).
-    # Con `${VAR}` Compose lee el mismo .env pero entra SOLO lo que se nombra aqui.
+    # The key is NOT written here: a docker-compose.yml ends up in git, a .env does not. Nor is
+    # `env_file` used, for a concrete reason: env_file injects the WHOLE .env, including
+    # STELLAR_SECRET_KEY, which this container never needs. With `${VAR}` Compose reads the
+    # same .env but only what is named here gets in.
     environment:
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
-      MIRAG_HOST: 0.0.0.0        # dentro del contenedor; ver el comentario del Dockerfile
-      MIRAG_OFFLINE: "1"         # "0" para respuestas reales, y entonces hace falta clave
-      LIMITE_USD: "0.50"         # tope por peticion: el agente corta antes de pasarse
-      MIRAG_EJECUCION: "off"     # genera codigo y tests, no los corre. Eso es de QA.
-      # Modelo gratuito para la prueba de concepto. Quita esta linea para volver al de
-      # pago. Limite del gratuito: 20 peticiones/minuto y 50/dia (1.000 si compraste 10 $).
-      MIRAG_MODELO: "openrouter/free"
-      # Secreto compartido con el servidor de CodeZard, que lo manda en X-Mirag-Token.
-      # Vacio = abierto a quien alcance el puerto, y el arranque lo dice. No hay token por
-      # defecto a proposito: un secreto de fabrica lo sabe todo el mundo.
+      MIRAG_HOST: 0.0.0.0          # inside the container; see the Dockerfile
+      MIRAG_OFFLINE: "1"           # "0" for real answers, and then a key is needed
+      MIRAG_BUDGET_USD: "0.50"     # cap per request: the agent stops before going over
+      MIRAG_EXECUTION: "off"       # generates code and tests, does not run them. That is QA's.
+      # Free model for the proof of concept. Remove the line to go back to the paid default.
+      # Free tier limits: 20 requests/minute and 50/day (1,000 if you ever bought $10).
+      MIRAG_MODEL: "openrouter/free"
+      # Shared secret with CodeZard's server, which sends it in X-Mirag-Token. Empty = open to
+      # whoever reaches the port, and the startup says so. No default token on purpose.
       MIRAG_TOKEN: "${MIRAG_TOKEN:-}"
 
-    # ── Contencion ────────────────────────────────────────────────────────────────
-    # no-new-privileges: ni un `sudo` ni un binario setuid pueden escalar desde dentro.
+    # ── Containment ─────────────────────────────────────────────────────────────
+    # no-new-privileges: no sudo and no setuid binary can escalate from inside.
     security_opt:
       - no-new-privileges:true
 
-    # Sin una sola capability. Este proceso abre un socket y lee archivos; no necesita
-    # poder cambiar la hora del sistema, montar nada ni tocar la red cruda.
+    # Not a single capability: this process opens a socket and reads files.
     cap_drop:
       - ALL
 
-    # /tmp es donde `skills.verificar_codigo` escribe y ejecuta lo que genera el modelo.
-    # En tmpfs: vive en RAM, muere con el contenedor y no deja rastro en el disco del host.
-    #   noexec  → no se pueden ejecutar BINARIOS desde ahi. Un `python3 test.py` sigue
-    #             funcionando, porque ahi quien ejecuta es el interprete, que vive en
-    #             /usr/local/bin; lo de /tmp es solo un archivo que se lee. Comprobado.
-    #   nosuid  → un binario setuid dejado ahi no sirve de nada.
-    #   size    → un bucle que escriba sin parar llena 64 MB de RAM y muere, no el disco.
+    # In RAM, dies with the container, leaves nothing on the host disk. noexec: no BINARY can
+    # be executed from there; nosuid: a setuid binary left there is useless; size: a loop that
+    # writes forever fills 64 MB of RAM and dies, not the disk.
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m
 
-    # Techos. Sin esto, un `while True: fork()` o un minero de cripto en el codigo generado
-    # se lleva por delante la maquina entera, no solo el contenedor.
+    # Ceilings. Without them a runaway request takes the whole machine, not just the container.
     pids_limit: 256
     mem_limit: 1g
     cpus: 1.5
 
     restart: unless-stopped
 
-    # Los logs tambien crecen sin techo si nadie lo dice.
+    # Logs also grow without a ceiling unless told otherwise.
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
 
-  # La misma imagen + stellar-sdk. Solo con `--profile identidad`.
+  # The same image + stellar-sdk. Only with `--profile identidad`.
   mirag-identidad:
     profiles: ["identidad"]
     build:
@@ -89,18 +81,16 @@ services:
     ports:
       - "127.0.0.1:8001:8000"
 
-    # AQUI ESTA LO IMPORTANTE, y es una propiedad medida, no una precaucion:
-    # para MOSTRAR la identidad solo se hacen lecturas sin firmar
-    # (blockchain/stellar/client.py:121-130), asi que bastan la clave PUBLICA y el id.
-    # La semilla solo hace falta en `invocar()` (client.py:133), que solo llaman
-    # registro.registrar() y registro.asociar_wallet(), y a esos solo los llama el demo
-    # con --registrar. Registrar es una operacion manual, local y de una vez.
-    # Por eso STELLAR_SECRET_KEY no aparece aqui: el contenedor no la necesita nunca.
+    # SHOWING the identity only takes unsigned reads, so the PUBLIC key and the id are
+    # enough. The seed is only needed to register, which is a manual, local, one-off operation
+    # (scripts/blockchain_agent_demo.py). That is why STELLAR_SECRET_KEY does not appear here.
     environment:
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
       MIRAG_HOST: 0.0.0.0
       MIRAG_OFFLINE: "1"
-      LIMITE_USD: "0.50"
+      MIRAG_BUDGET_USD: "0.50"
+      MIRAG_EXECUTION: "off"
+      MIRAG_TOKEN: "${MIRAG_TOKEN:-}"
       MIRAG_BLOCKCHAIN: testnet
       STELLAR_PUBLIC_KEY: "${STELLAR_PUBLIC_KEY:-}"
       STELLAR_AGENT_ID: "${STELLAR_AGENT_ID:-}"

@@ -1,0 +1,102 @@
+{
+  "reranker": {
+    "easy": {
+      "delta_mrr": -0.0097,
+      "normalized_cost": 0.0062,
+      "measured_on": "2026-09-15",
+      "measured_over": "real pipeline (phase 3)",
+      "baseline": 0.9516,
+      "corpus_locale": "es"
+    },
+    "paraphrase": {
+      "delta_mrr": -0.0625,
+      "normalized_cost": 0.0062,
+      "measured_on": "2026-09-15",
+      "measured_over": "real pipeline (phase 3)",
+      "baseline": 0.4896,
+      "corpus_locale": "es"
+    },
+    "mixed": {
+      "delta_mrr": 0.2,
+      "normalized_cost": 0.0062,
+      "measured_on": "2026-09-15",
+      "measured_over": "real pipeline (phase 3)",
+      "baseline": 0.8,
+      "corpus_locale": "es"
+    },
+    "typos": {
+      "delta_mrr": 0.3333,
+      "normalized_cost": 0.0062,
+      "measured_on": "2026-09-15",
+      "measured_over": "real pipeline (phase 3)",
+      "baseline": 0.1667,
+      "corpus_locale": "es"
+    },
+    "multi_hop": {
+      "delta_mrr": 0.0555,
+      "normalized_cost": 0.0062,
+      "measured_on": "2026-09-15",
+      "measured_over": "real pipeline (phase 3)",
+      "baseline": 0.7778,
+      "corpus_locale": "es"
+    },
+    "general": {
+      "delta_mrr": 0.0815,
+      "normalized_cost": 0.0062,
+      "measured_on": "2026-09-15",
+      "measured_over": "real pipeline (phase 3)",
+      "baseline": 0.5528,
+      "corpus_locale": "es"
+    }
+  },
+  "vector_signal": {
+    "easy": {
+      "delta_mrr": -0.0134,
+      "normalized_cost": 0.0431,
+      "measured_on": "2026-09-15",
+      "measured_over": "real pipeline (phase 3)",
+      "baseline": 0.9516,
+      "corpus_locale": "es"
+    },
+    "paraphrase": {
+      "delta_mrr": -0.0342,
+      "normalized_cost": 0.0431,
+      "measured_on": "2026-09-15",
+      "measured_over": "real pipeline (phase 3)",
+      "baseline": 0.4896,
+      "corpus_locale": "es"
+    },
+    "mixed": {
+      "delta_mrr": 0.075,
+      "normalized_cost": 0.0431,
+      "measured_on": "2026-09-15",
+      "measured_over": "real pipeline (phase 3)",
+      "baseline": 0.8,
+      "corpus_locale": "es"
+    },
+    "typos": {
+      "delta_mrr": 0.1111,
+      "normalized_cost": 0.0431,
+      "measured_on": "2026-09-15",
+      "measured_over": "real pipeline (phase 3)",
+      "baseline": 0.1667,
+      "corpus_locale": "es"
+    },
+    "multi_hop": {
+      "delta_mrr": -0.2111,
+      "normalized_cost": 0.0431,
+      "measured_on": "2026-09-15",
+      "measured_over": "real pipeline (phase 3)",
+      "baseline": 0.7778,
+      "corpus_locale": "es"
+    },
+    "general": {
+      "delta_mrr": -0.0152,
+      "normalized_cost": 0.0431,
+      "measured_on": "2026-09-15",
+      "measured_over": "real pipeline (phase 3)",
+      "baseline": 0.5528,
+      "corpus_locale": "es"
+    }
+  }
+}

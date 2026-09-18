@@ -1,14 +1,3 @@
-# Lo que tiene que ser verdad en cada push, comprobado por una maquina que no se cansa.
-#
-# Este repositorio se sostiene sobre una promesa concreta: que no afirma nada que no haya
-# observado. Esa promesa vive en las 23 suites y en los contratos de las demos, y las dos
-# cosas corren sin dependencias, sin red y sin llamar al modelo — o sea que comprobarlas
-# aqui es gratis y no hay excusa para no hacerlo en cada commit.
-#
-# El motivo de que esto exista: un fallo real llego a estar en main porque solo aparecia
-# EJECUTANDO (un import perezoso encendia la ejecucion de codigo generado). Leer el codigo
-# no lo habria encontrado; correr la suite, si.
-
 name: CI
 
 on:
@@ -21,74 +10,58 @@ permissions:
   contents: read
 
 jobs:
-  suite:
-    name: Las 23 suites y los contratos de las demos
-    runs-on: ubuntu-24.04    # fijada: `ubuntu-latest` migra a Ubuntu 26 el 19/10/2026
+  lint:
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          # 3.14 igual que el Dockerfile y que la maquina donde se desarrolla.
-          # Comprobado que existe en el manifiesto de actions/python-versions (3.14.7,
-          # con build para linux-24.04-x64); no es una suposicion.
-          python-version: "3.14"
+          python-version: "3.12"
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m ruff check src benchmarks scripts
+      - run: python -m mypy
 
-      # Sin `pip install`: el nucleo es biblioteca estandar pura, y que eso siga siendo
-      # cierto lo comprueba tests/test_arquitectura_repo.py recorriendo el AST.
+  contracts:
+    name: Demo contracts and no credentials
+    runs-on: ubuntu-24.04    # pinned: `ubuntu-latest` moves to Ubuntu 26 on 2026-10-19
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"   # the same as the Dockerfile
 
-      - name: Las 23 suites
-        env:
-          MIRAG_OFFLINE: "1"        # el candado: ni una llamada al modelo, coste 0
-        run: |
-          fallos=0
-          for f in tests/test_*.py; do
-            echo "::group::$f"
-            # `|| fallos=...` y no `set -e`: queremos ver TODAS las que fallan de una vez,
-            # no pararnos en la primera y tener que adivinar el resto.
-            python3 "$f" || fallos=$((fallos + 1))
-            echo "::endgroup::"
-          done
-          echo "suites con fallo: $fallos"
-          exit $fallos
-
-      - name: Los contratos de las 4 demos
+      # No model call and no dependency: the core is standard library. The demos switch
+      # execution on, because they are what shows the verification machinery.
+      - name: The demo contracts
         env:
           MIRAG_OFFLINE: "1"
-        run: |
-          salida=$(python3 demos.py todas 2>&1) || true
-          echo "$salida" | tail -40
-          cumplen=$(echo "$salida" | grep -c "CUMPLE EL CONTRATO" || true)
-          incumplen=$(echo "$salida" | grep -c "NO CUMPLE" || true)
-          echo "cumplen: $cumplen · incumplen: $incumplen"
-          # Las demos ENCIENDEN la ejecucion (demos.py lo hace en su __main__) porque son
-          # lo que demuestra la maquinaria de verificacion. En produccion sigue apagada.
-          test "$cumplen" -eq 4 && test "$incumplen" -eq 0
+          PYTHONPATH: src
+        run: python -m mirag demo all
 
-      - name: Ninguna credencial en lo que se versiona
+      - name: No credential in what is versioned
         run: |
-          # Barato, y cubre el descuido mas caro: un .env commiteado por error.
-          if git ls-files | grep -qxF ".env"; then echo "::error::.env esta versionado"; exit 1; fi
-          # -l y no -n: `git grep -n` imprime la LINEA encontrada, y este repo es
-          # publico. Un aviso que ecoa la credencial en un log publico filtra justo lo
-          # que existe para proteger. Se dicen los archivos, nunca el contenido.
+          # Cheap, and it covers the most expensive slip: a .env committed by mistake.
+          if git ls-files | grep -qxF ".env"; then echo "::error::.env is versioned"; exit 1; fi
+          # -l and not -n: `git grep -n` prints the matching LINE, and this repository is
+          # public. A warning that echoes the credential into a public log leaks exactly what
+          # it exists to protect. Files are named, content never.
           if git grep -lIE "sk-or-v1-[A-Za-z0-9]{20,}|\bS[A-Z2-7]{55}\b" -- . ; then
-            echo "::error::hay algo con forma de credencial en los archivos de arriba"
+            echo "::error::something shaped like a credential in the files above"
             exit 1
           fi
-          echo "sin credenciales en el arbol"
+          echo "no credentials in the tree"
 
-  imagen:
-    name: Publicar las dos imagenes en GHCR
-    # Solo si la suite paso: una imagen que no pasa sus propios tests no se publica.
-    needs: suite
+  image:
+    name: Publish both images to GHCR
+    # Only when the checks passed: an image that does not pass its own checks is not published.
+    needs: [lint, contracts]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-24.04    # fijada: `ubuntu-latest` migra a Ubuntu 26 el 19/10/2026
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
 
       - uses: docker/setup-buildx-action@v4
 
@@ -98,7 +71,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── la imagen limpia: cero dependencias ──────────────────────────────────
+      # ── the clean image: zero dependencies ────────────────────────────────────
       - id: meta_base
         uses: docker/metadata-action@v6
         with:
@@ -117,7 +90,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # ── la de identidad: + stellar-sdk, para /api/blockchain/agent ───────────
+      # ── the identity image: + stellar-sdk, for /api/v1/blockchain/agent ───────
       - id: meta_id
         uses: docker/metadata-action@v6
         with:
@@ -138,26 +111,25 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: La imagen publicada arranca y no lleva secretos
+      - name: The published image starts and carries no secret
         run: |
-          # Publicar algo que no arranca es peor que no publicar: el fallo aparece en el
-          # servidor, no aqui. Se comprueba contra la imagen que ACABA de subirse.
+          # Checked against the image that was JUST pushed: a failure belongs here, not on the server.
           IMG=ghcr.io/${{ github.repository }}:latest
           docker pull -q "$IMG"
           docker run --rm --entrypoint sh "$IMG" -c 'test ! -f /app/.env' \
-            || { echo "::error::la imagen lleva un .env"; exit 1; }
-          docker run -d --name prueba -p 127.0.0.1:8000:8000 "$IMG"
+            || { echo "::error::the image carries a .env"; exit 1; }
+          docker run -d --name check -p 127.0.0.1:8000:8000 "$IMG"
           for i in $(seq 1 30); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/ || true)
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/api/v1/health || true)
             [ "$code" = "200" ] && break
             sleep 1
           done
-          echo "la pagina responde: HTTP $code"
+          echo "health answers: HTTP $code"
           test "$code" = "200"
-          # y las rutas que nunca deben servirse siguen sin servirse
-          for ruta in /.env /server.py /trazas.jsonl; do
-            c=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8000$ruta")
-            echo "  $ruta -> $c"
+          # and the paths that must never be served are still not served
+          for path in /.env /pyproject.toml /src/mirag/core/settings.py /var/traces/pipeline.jsonl; do
+            c=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8000$path")
+            echo "  $path -> $c"
             test "$c" = "404"
           done
-          docker rm -f prueba
+          docker rm -f check

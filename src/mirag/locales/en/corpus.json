@@ -1,0 +1,23 @@
+{
+  "card_marker": "Card",
+  "fields": {
+    "when": "When",
+    "pattern": "Pattern",
+    "anti_pattern": "Anti-pattern",
+    "limits": "Limits",
+    "how_it_fails": "How it fails",
+    "decision": "Decision",
+    "depends_on": "Depends on",
+    "trade_off": "Trade-off",
+    "related": "Related"
+  },
+  "failure_title_prefixes": ["Failure modes", "Failure scenarios", "Business inconsistencies"],
+  "sources_title": "Sources",
+  "syllabus_marker": "Covers from the syllabus",
+  "labels": {
+    "fails_like": "fails like this",
+    "avoid": "AVOID",
+    "prefer": "PREFER",
+    "see_box": "(see the box)"
+  }
+}
