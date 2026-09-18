@@ -183,6 +183,90 @@ def el_codigo_generado_no_ve_las_credenciales():
                 os.environ[v] = valor
 
 
+def _post(cuerpo, cabeceras=None):
+    c = http.client.HTTPConnection("127.0.0.1", _arrancar(), timeout=30)
+    c.request("POST", "/chat", body=cuerpo,
+              headers={"Content-Type": "application/json", **(cabeceras or {})})
+    r = c.getresponse()
+    estado = r.status
+    r.read()
+    c.close()
+    return estado
+
+
+def sin_token_el_servidor_sigue_abierto():
+    """El modo local de siempre. Un token por defecto seria un secreto que sabe todo el mundo."""
+    previo = os.environ.pop("MIRAG_TOKEN", None)
+    try:
+        assert _post(b'{"pregunta":"hola"}') == 200, "sin MIRAG_TOKEN deberia dejar pasar"
+    finally:
+        if previo is not None:
+            os.environ["MIRAG_TOKEN"] = previo
+
+
+def con_token_no_se_entra_sin_la_cabecera():
+    """El secreto compartido entre el servidor de CodeZard y este."""
+    previo = os.environ.get("MIRAG_TOKEN")
+    try:
+        os.environ["MIRAG_TOKEN"] = "secreto-de-prueba"
+        assert _post(b'{"pregunta":"hola"}') == 401, "sin cabecera deberia ser 401"
+        assert _post(b'{"pregunta":"hola"}', {"X-Mirag-Token": "otro"}) == 401, \
+            "un token equivocado deberia ser 401"
+        assert _post(b'{"pregunta":"hola"}',
+                     {"X-Mirag-Token": "secreto-de-prueba"}) == 200, \
+            "el token correcto tiene que pasar"
+        # y la descarga va por la misma puerta: el ZIP es lo que mas importa proteger
+        c = http.client.HTTPConnection("127.0.0.1", _arrancar(), timeout=10)
+        c.request("GET", "/descarga?id=" + "0" * 24)
+        estado = c.getresponse().status
+        c.close()
+        assert estado == 401, f"/descarga sin token devolvio {estado}"
+    finally:
+        if previo is None:
+            os.environ.pop("MIRAG_TOKEN", None)
+        else:
+            os.environ["MIRAG_TOKEN"] = previo
+
+
+def un_cuerpo_mal_formado_da_400_y_no_corta_la_conexion():
+    """Antes el parseo estaba FUERA del try y antes del send_response.
+
+    Un cuerpo sin "pregunta" reventaba el handler y socketserver cerraba la conexion sin
+    mandar nada: el cliente veia un fetch abortado, no un error. Con un solo cliente —la
+    propia pagina, que siempre manda bien— no se notaba. Con otro servidor llamando desde
+    fuera, se nota el primer dia, y un 400 se depura y una conexion cortada no.
+    """
+    previo = os.environ.pop("MIRAG_TOKEN", None)
+    try:
+        for cuerpo in (b'{"no_hay_pregunta":1}', b'esto no es json', b'{"pregunta":""}',
+                       b'{"pregunta":123}', b'{}', b''):
+            estado = _post(cuerpo)
+            assert estado == 400, f"{cuerpo[:22]!r} devolvio {estado}, deberia ser 400"
+    finally:
+        if previo is not None:
+            os.environ["MIRAG_TOKEN"] = previo
+
+
+def el_401_no_dice_si_la_ruta_existe_ni_que_falta():
+    """Un 401 que explica demasiado le ahorra trabajo a quien prueba."""
+    previo = os.environ.get("MIRAG_TOKEN")
+    try:
+        os.environ["MIRAG_TOKEN"] = "secreto-de-prueba"
+        c = http.client.HTTPConnection("127.0.0.1", _arrancar(), timeout=10)
+        c.request("POST", "/chat", body=b'{"pregunta":"hola"}',
+                  headers={"Content-Type": "application/json"})
+        r = c.getresponse()
+        cuerpo = r.read()
+        c.close()
+        assert b"secreto-de-prueba" not in cuerpo, "el 401 ecoa el token esperado"
+        assert b"X-Mirag-Token" not in cuerpo, "el 401 dice que cabecera falta"
+    finally:
+        if previo is None:
+            os.environ.pop("MIRAG_TOKEN", None)
+        else:
+            os.environ["MIRAG_TOKEN"] = previo
+
+
 # ══ B · calcular no ejecuta Python ═══════════════════════════════════════════
 
 def la_aritmetica_sigue_funcionando():

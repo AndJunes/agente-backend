@@ -1,5 +1,6 @@
 """Servidor minimo para ver el agente en el navegador. Solo libreria estandar."""
 
+import hmac
 import json
 import os
 from pathlib import Path
@@ -259,6 +260,8 @@ class Handler(SimpleHTTPRequestHandler):
 
         import artefactos
         import proyecto as _P
+        if not self._autorizado():
+            return
         ident = urllib.parse.parse_qs(consulta).get("id", [""])[0]
         if not artefactos.ID_VALIDO.match(ident or ""):
             self.send_error(400, "id mal formado")      # literal: no se ecoa lo recibido
@@ -389,14 +392,57 @@ class Handler(SimpleHTTPRequestHandler):
 
     RUTAS_POST = ("/", "/chat")
 
+    def _autorizado(self):
+        """True si la peticion puede pasar. Si no, ya ha respondido 401 y hay que salir.
+
+        `MIRAG_TOKEN` vacia deja el servidor ABIERTO, que es como ha funcionado siempre en
+        local, y el arranque lo dice en voz alta. No se pone un token por defecto a
+        proposito: un secreto que viene de fabrica lo conoce todo el mundo y da una
+        sensacion de seguridad peor que no tener ninguno.
+
+        Con token, la comprobacion es `hmac.compare_digest` y no `==`: comparar cadenas
+        con `==` corta en el primer byte distinto, y ese tiempo distinto es medible. Es
+        barato hacerlo bien.
+
+        Esto no es autenticacion de usuarios: es un secreto compartido entre el servidor
+        de CodeZard y este. Quien lo tenga, puede pedirlo todo.
+        """
+        esperado = os.environ.get("MIRAG_TOKEN", "").strip()
+        if not esperado:
+            return True
+        dado = (self.headers.get("X-Mirag-Token") or "").strip()
+        if hmac.compare_digest(dado, esperado):
+            return True
+        # 401 seco: ni se dice que falta la cabecera ni que el valor esta mal, porque esa
+        # diferencia le ahorra trabajo a quien prueba.
+        self.send_error(401, "No autorizado")
+        return False
+
     def do_POST(self):
         # Hasta ahora do_POST no miraba `self.path`: `POST /descarga` ejecutaba el agente.
         # Con una segunda ruta GET eso pasa de rareza a confusion.
         if self.path.split("?")[0] not in self.RUTAS_POST:
             self.send_error(404, "No encontrado")
             return
-        peticion = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-        pregunta = peticion["pregunta"]
+        if not self._autorizado():
+            return
+        # El cuerpo se parsea DENTRO de un try, y esto no es una formalidad. Antes se
+        # parseaba aqui fuera y antes del `send_response`: un cuerpo mal formado, o sin
+        # la clave "pregunta", reventaba el handler y socketserver cerraba la conexion
+        # sin enviar NADA. El cliente veia un fetch abortado en vez de un error. Con un
+        # solo cliente —la propia pagina, que siempre manda bien— eso no se notaba; con
+        # CodeZard llamando desde otro servidor, se nota el primer dia.
+        try:
+            largo = int(self.headers.get("Content-Length") or 0)
+            peticion = json.loads(self.rfile.read(largo))
+            pregunta = peticion["pregunta"]
+            if not isinstance(pregunta, str) or not pregunta.strip():
+                raise ValueError("'pregunta' tiene que ser un texto no vacio")
+        except (ValueError, TypeError, KeyError, json.JSONDecodeError) as e:
+            # El motivo se dice, pero no se ecoa el cuerpo recibido: si alguien manda una
+            # clave por error, devolverla amplifica el descuido en vez de contenerlo.
+            self.send_error(400, f"Peticion mal formada: {type(e).__name__}")
+            return
         agent.PRESUPUESTO.reiniciar()          # el tope es POR peticion (y por hilo)
         modo = peticion.get("modo", "pipeline")
         entregable = None
@@ -515,6 +561,10 @@ def escucha_en():
 if __name__ == "__main__":
     _host, _puerto = escucha_en()
     print(f"Abre http://localhost:{_puerto}")
+    if not os.environ.get("MIRAG_TOKEN", "").strip():
+        print("  Sin MIRAG_TOKEN: cualquiera que alcance este puerto puede pedir. Para\n"
+              "  que solo entre tu servidor de CodeZard, pon MIRAG_TOKEN y mandalo en\n"
+              "  la cabecera X-Mirag-Token.")
     if _host != HOST_POR_DEFECTO:
         print(f"  AVISO: escuchando en {_host}, no solo en localhost. Este servidor no "
               f"tiene autenticacion y ejecuta codigo: no lo expongas a una red abierta.")

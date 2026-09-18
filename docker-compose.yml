@@ -38,6 +38,10 @@ services:
       # Modelo gratuito para la prueba de concepto. Quita esta linea para volver al de
       # pago. Limite del gratuito: 20 peticiones/minuto y 50/dia (1.000 si compraste 10 $).
       MIRAG_MODELO: "openrouter/free"
+      # Secreto compartido con el servidor de CodeZard, que lo manda en X-Mirag-Token.
+      # Vacio = abierto a quien alcance el puerto, y el arranque lo dice. No hay token por
+      # defecto a proposito: un secreto de fabrica lo sabe todo el mundo.
+      MIRAG_TOKEN: "${MIRAG_TOKEN:-}"
 
     # ── Contencion ────────────────────────────────────────────────────────────────
     # no-new-privileges: ni un `sudo` ni un binario setuid pueden escalar desde dentro.
