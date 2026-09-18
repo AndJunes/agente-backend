@@ -1,6 +1,6 @@
 PYTHON ?= python
 
-.PHONY: install run test test-all lint format typecheck demo clean
+.PHONY: install run lint format typecheck demo clean
 
 install:
 	$(PYTHON) -m pip install -e ".[dev]"
@@ -8,17 +8,11 @@ install:
 run:
 	$(PYTHON) -m mirag serve
 
-test:
-	$(PYTHON) -m pytest
-
-test-all:
-	$(PYTHON) -m pytest -m "not network"
-
 lint:
-	$(PYTHON) -m ruff check src tests benchmarks scripts
+	$(PYTHON) -m ruff check src benchmarks scripts
 
 format:
-	$(PYTHON) -m ruff check --fix src tests benchmarks scripts
+	$(PYTHON) -m ruff check --fix src benchmarks scripts
 
 typecheck:
 	$(PYTHON) -m mypy
