@@ -98,10 +98,18 @@ curl -fsSL -O  "$RAW/docker-compose.prod.yml"
 curl -fsSL -o .env "$RAW/.env.servidor.example"
 ```
 
+Si acabas de publicar un cambio en esos archivos, `raw.githubusercontent.com` sirve desde
+una CDN que cachea unos minutos y te va a dar la version anterior sin avisar. El sintoma
+es desconcertante: el despliegue se comporta como el codigo de ayer. Para forzar la fresca,
+`curl -H "Cache-Control: no-cache" -o docker-compose.prod.yml "$RAW/docker-compose.prod.yml?$(date +%s)"`.
+
 **3 · El `.env`.** Genera el token, no lo inventes; y pega tu clave de OpenRouter:
 
 ```bash
-sed -i "s|^MIRAG_TOKEN=.*|MIRAG_TOKEN=$(python3 -c 'import secrets;print(secrets.token_urlsafe(32))')|" .env
+# -i.bak y no -i a secas: el `sed` de macOS (BSD) exige un sufijo y el de Linux (GNU) lo
+# acepta. `sed -i` sin sufijo funciona en el VPS y falla en un Mac con un error que no
+# explica nada ("invalid command code .").
+sed -i.bak "s|^MIRAG_TOKEN=.*|MIRAG_TOKEN=$(python3 -c 'import secrets;print(secrets.token_urlsafe(32))')|" .env && rm -f .env.bak
 nano .env        # y pon OPENROUTER_API_KEY
 chmod 600 .env   # que solo lo lea tu usuario
 ```
