@@ -1,0 +1,249 @@
+{
+ "nombre": "baseline",
+ "trozos": 247,
+ "medido_con": "pregunta literal (la reformulacion necesita LLM)",
+ "llamadas_llm": 0,
+ "facil": {
+  "facil": {
+   "n": 31,
+   "recall_1": 29,
+   "recall_3": 31,
+   "mrr": 0.957
+  },
+  "TOTAL": {
+   "n": 31,
+   "recall_1": 29,
+   "recall_3": 31,
+   "mrr": 0.957
+  }
+ },
+ "duro": {
+  "parafrasis": {
+   "n": 8,
+   "recall_1": 2,
+   "recall_3": 3,
+   "mrr": 0.3528
+  },
+  "mixto": {
+   "n": 4,
+   "recall_1": 3,
+   "recall_3": 4,
+   "mrr": 0.8333
+  },
+  "erratas": {
+   "n": 3,
+   "recall_1": 0,
+   "recall_3": 1,
+   "mrr": 0.1667
+  },
+  "multisalto": {
+   "n": 3,
+   "recall_1": 0,
+   "recall_3": 3,
+   "mrr": 0.5
+  },
+  "TOTAL": {
+   "n": 18,
+   "recall_1": 5,
+   "recall_3": 11,
+   "mrr": 0.4531
+  }
+ },
+ "contexto_tokens": {
+  "mediana": 3257,
+  "max": 5354,
+  "min": 1559
+ },
+ "casos_duros": [
+  {
+   "familia": "parafrasis",
+   "pregunta": "mi servicio se queda esperando para siempre a otro que no responde",
+   "aceptables": [
+    "10 · Timeouts"
+   ],
+   "posiciones": []
+  },
+  {
+   "familia": "parafrasis",
+   "pregunta": "cuando un servicio va lento las peticiones se amontonan y tiran todo lo demas",
+   "aceptables": [
+    "09 · Backpressure",
+    "10 · Bulkheads (mamparos)",
+    "10 · Circuit breakers"
+   ],
+   "posiciones": [
+    1
+   ]
+  },
+  {
+   "familia": "parafrasis",
+   "pregunta": "que el cliente no pague dos veces si le da dos veces al boton",
+   "aceptables": [
+    "07 · Idempotencia en pagos",
+    "08 · Idempotencia (el pilar de todo)",
+    "03 · Idempotency"
+   ],
+   "posiciones": [
+    9
+   ]
+  },
+  {
+   "familia": "parafrasis",
+   "pregunta": "subir un archivo grande sin que pase por mi servidor",
+   "aceptables": [
+    "15 · El patrón correcto: presigned URLs",
+    "15 · Multipart y uploads resumibles"
+   ],
+   "posiciones": [
+    2,
+    7
+   ]
+  },
+  {
+   "familia": "parafrasis",
+   "pregunta": "enterarme de que algo va mal antes de que me lo cuente un cliente",
+   "aceptables": [
+    "12 · Alerts",
+    "10 · SLI, SLO, SLA y error budget"
+   ],
+   "posiciones": []
+  },
+  {
+   "familia": "parafrasis",
+   "pregunta": "la consulta tarda muchisimo cuando filtro por fecha y hay millones de filas",
+   "aceptables": [
+    "04 · Índices",
+    "04 · Query optimization"
+   ],
+   "posiciones": [
+    10
+   ]
+  },
+  {
+   "familia": "parafrasis",
+   "pregunta": "guardar quien hizo que y cuando para poder auditarlo despues",
+   "aceptables": [
+    "17 · Audit logs"
+   ],
+   "posiciones": [
+    1
+   ]
+  },
+  {
+   "familia": "parafrasis",
+   "pregunta": "repartir el trabajo pesado para no bloquear la respuesta al usuario",
+   "aceptables": [
+    "15 · Background processing",
+    "01 · Patrones de concurrencia"
+   ],
+   "posiciones": [
+    9
+   ]
+  },
+  {
+   "familia": "mixto",
+   "pregunta": "como hago health check de un servicio",
+   "aceptables": [
+    "12 · Health checks",
+    "10 · Implementación: health checks y apagado elegante"
+   ],
+   "posiciones": [
+    1,
+    3
+   ]
+  },
+  {
+   "familia": "mixto",
+   "pregunta": "cursor based pagination o offset para mi API",
+   "aceptables": [
+    "03 · Pagination"
+   ],
+   "posiciones": [
+    1
+   ]
+  },
+  {
+   "familia": "mixto",
+   "pregunta": "necesito rate limiting en mi endpoint",
+   "aceptables": [
+    "03 · Rate limiting"
+   ],
+   "posiciones": [
+    3
+   ]
+  },
+  {
+   "familia": "mixto",
+   "pregunta": "graceful shutdown de un pod sin cortar requests en vuelo",
+   "aceptables": [
+    "10 · Implementación: health checks y apagado elegante",
+    "13 · Kubernetes",
+    "14 · Estrategias de despliegue"
+   ],
+   "posiciones": [
+    1,
+    2
+   ]
+  },
+  {
+   "familia": "erratas",
+   "pregunta": "idenpotencia en pagos",
+   "aceptables": [
+    "07 · Idempotencia en pagos"
+   ],
+   "posiciones": []
+  },
+  {
+   "familia": "erratas",
+   "pregunta": "indices en postgress",
+   "aceptables": [
+    "04 · Índices"
+   ],
+   "posiciones": [
+    2
+   ]
+  },
+  {
+   "familia": "erratas",
+   "pregunta": "transaciones y aislamento en base de datos",
+   "aceptables": [
+    "04 · Transacciones y ACID"
+   ],
+   "posiciones": []
+  },
+  {
+   "familia": "multisalto",
+   "pregunta": "como evito que dos usuarios reserven la misma plaza a la vez en postgres",
+   "aceptables": [
+    "04 · Locks y deadlocks",
+    "04 · Transacciones y ACID"
+   ],
+   "posiciones": [
+    2,
+    4
+   ]
+  },
+  {
+   "familia": "multisalto",
+   "pregunta": "cobrar una sola vez aunque el cliente reintente y la red falle",
+   "aceptables": [
+    "07 · Idempotencia en pagos",
+    "08 · Idempotencia (el pilar de todo)",
+    "08 · Retries, backoff y sus peligros"
+   ],
+   "posiciones": [
+    2
+   ]
+  },
+  {
+   "familia": "multisalto",
+   "pregunta": "publicar un evento y guardar en base de datos sin que se descuadren",
+   "aceptables": [
+    "08 · Outbox pattern (el problema de la doble escritura)"
+   ],
+   "posiciones": [
+    2
+   ]
+  }
+ ]
+}

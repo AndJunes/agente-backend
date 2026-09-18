@@ -1,0 +1,59 @@
+{
+ "cuando": "2026-09-15T18:44:50",
+ "suites": {
+  "test_auditoria.py": {
+   "exit": 0,
+   "resumen": "15 casos · TODO OK"
+  },
+  "test_cache.py": {
+   "exit": 0,
+   "resumen": "24 casos · TODO OK"
+  },
+  "test_cimientos.py": {
+   "exit": 0,
+   "resumen": "21 casos · TODO OK"
+  },
+  "test_enrutador.py": {
+   "exit": 0,
+   "resumen": "13 casos · TODO OK"
+  },
+  "test_full_pipeline.py": {
+   "exit": 0,
+   "resumen": "16 casos · TODO OK"
+  },
+  "test_grafo_arbol.py": {
+   "exit": 0,
+   "resumen": "23 casos · TODO OK"
+  },
+  "test_metadatos.py": {
+   "exit": 0,
+   "resumen": "19 casos · TODO OK"
+  },
+  "test_plan.py": {
+   "exit": 0,
+   "resumen": "22 casos · TODO OK"
+  },
+  "test_resiliencia.py": {
+   "exit": 0,
+   "resumen": "24 casos · TODO OK"
+  },
+  "test_simbolos.py": {
+   "exit": 0,
+   "resumen": "18 casos · TODO OK"
+  },
+  "test_vectores.py": {
+   "exit": 0,
+   "resumen": "29 casos · TODO OK"
+  }
+ },
+ "casos_totales": 224,
+ "suites_rojas": [],
+ "desconexion": {
+  "sha_reranker_on": "00cb0796ccc4dfb6",
+  "sha_reranker_off": "00cb0796ccc4dfb6",
+  "identicos": true,
+  "chars": 8535
+ },
+ "coste_acumulado_usd": 0.0493,
+ "llamadas_reales": 4
+}

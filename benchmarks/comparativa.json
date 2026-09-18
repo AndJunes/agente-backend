@@ -1,0 +1,277 @@
+[
+ {
+  "nombre": "base (bm25)",
+  "config": {
+   "vector": false,
+   "reranker": false,
+   "metodo": "bm25",
+   "plan": false
+  },
+  "familias": {
+   "facil": {
+    "n": 31,
+    "recall_1": 27,
+    "recall_3": 31,
+    "mrr": 0.9355
+   },
+   "parafrasis": {
+    "n": 8,
+    "recall_1": 2,
+    "recall_3": 6,
+    "mrr": 0.4917
+   },
+   "mixto": {
+    "n": 4,
+    "recall_1": 3,
+    "recall_3": 3,
+    "mrr": 0.8
+   },
+   "erratas": {
+    "n": 3,
+    "recall_1": 0,
+    "recall_3": 1,
+    "mrr": 0.1587
+   },
+   "multisalto": {
+    "n": 3,
+    "recall_1": 2,
+    "recall_3": 3,
+    "mrr": 0.8333
+   }
+  },
+  "total": {
+   "n": 49,
+   "recall_1": 34,
+   "recall_3": 44,
+   "mrr": 0.7982
+  },
+  "duro": {
+   "n": 18,
+   "recall_1": 7,
+   "recall_3": 13,
+   "mrr": 0.5616
+  },
+  "ms_mediana": 2.34,
+  "ms_p95": 2.85
+ },
+ {
+  "nombre": "bm25 + vector + RRF",
+  "config": {
+   "vector": true,
+   "reranker": false,
+   "metodo": "bm25",
+   "plan": false
+  },
+  "familias": {
+   "facil": {
+    "n": 31,
+    "recall_1": 24,
+    "recall_3": 28,
+    "mrr": 0.8594
+   },
+   "parafrasis": {
+    "n": 8,
+    "recall_1": 2,
+    "recall_3": 3,
+    "mrr": 0.3804
+   },
+   "mixto": {
+    "n": 4,
+    "recall_1": 3,
+    "recall_3": 4,
+    "mrr": 0.875
+   },
+   "erratas": {
+    "n": 3,
+    "recall_1": 1,
+    "recall_3": 1,
+    "mrr": 0.4167
+   },
+   "multisalto": {
+    "n": 3,
+    "recall_1": 1,
+    "recall_3": 1,
+    "mrr": 0.4833
+   }
+  },
+  "total": {
+   "n": 49,
+   "recall_1": 31,
+   "recall_3": 37,
+   "mrr": 0.7324
+  },
+  "duro": {
+   "n": 18,
+   "recall_1": 7,
+   "recall_3": 9,
+   "mrr": 0.5135
+  },
+  "ms_mediana": 3.14,
+  "ms_p95": 4.07
+ },
+ {
+  "nombre": "bm25 + reranker",
+  "config": {
+   "vector": false,
+   "reranker": true,
+   "metodo": "bm25",
+   "plan": false
+  },
+  "familias": {
+   "facil": {
+    "n": 31,
+    "recall_1": 30,
+    "recall_3": 30,
+    "mrr": 0.9731
+   },
+   "parafrasis": {
+    "n": 8,
+    "recall_1": 2,
+    "recall_3": 3,
+    "mrr": 0.3836
+   },
+   "mixto": {
+    "n": 4,
+    "recall_1": 4,
+    "recall_3": 4,
+    "mrr": 1.0
+   },
+   "erratas": {
+    "n": 3,
+    "recall_1": 1,
+    "recall_3": 2,
+    "mrr": 0.5
+   },
+   "multisalto": {
+    "n": 3,
+    "recall_1": 2,
+    "recall_3": 3,
+    "mrr": 0.7778
+   }
+  },
+  "total": {
+   "n": 49,
+   "recall_1": 39,
+   "recall_3": 42,
+   "mrr": 0.8381
+  },
+  "duro": {
+   "n": 18,
+   "recall_1": 9,
+   "recall_3": 12,
+   "mrr": 0.6057
+  },
+  "ms_mediana": 6.74,
+  "ms_p95": 17.32
+ },
+ {
+  "nombre": "bm25 + vector + reranker",
+  "config": {
+   "vector": true,
+   "reranker": true,
+   "metodo": "bm25",
+   "plan": false
+  },
+  "familias": {
+   "facil": {
+    "n": 31,
+    "recall_1": 29,
+    "recall_3": 30,
+    "mrr": 0.957
+   },
+   "parafrasis": {
+    "n": 8,
+    "recall_1": 2,
+    "recall_3": 4,
+    "mrr": 0.369
+   },
+   "mixto": {
+    "n": 4,
+    "recall_1": 4,
+    "recall_3": 4,
+    "mrr": 1.0
+   },
+   "erratas": {
+    "n": 3,
+    "recall_1": 2,
+    "recall_3": 2,
+    "mrr": 0.6667
+   },
+   "multisalto": {
+    "n": 3,
+    "recall_1": 1,
+    "recall_3": 2,
+    "mrr": 0.5833
+   }
+  },
+  "total": {
+   "n": 49,
+   "recall_1": 38,
+   "recall_3": 42,
+   "mrr": 0.8239
+  },
+  "duro": {
+   "n": 18,
+   "recall_1": 9,
+   "recall_3": 12,
+   "mrr": 0.5946
+  },
+  "ms_mediana": 5.86,
+  "ms_p95": 6.68
+ },
+ {
+  "nombre": "idf original (el de antes)",
+  "config": {
+   "vector": false,
+   "reranker": false,
+   "metodo": "idf",
+   "plan": false
+  },
+  "familias": {
+   "facil": {
+    "n": 31,
+    "recall_1": 29,
+    "recall_3": 31,
+    "mrr": 0.957
+   },
+   "parafrasis": {
+    "n": 8,
+    "recall_1": 2,
+    "recall_3": 3,
+    "mrr": 0.3528
+   },
+   "mixto": {
+    "n": 4,
+    "recall_1": 3,
+    "recall_3": 4,
+    "mrr": 0.8333
+   },
+   "erratas": {
+    "n": 3,
+    "recall_1": 0,
+    "recall_3": 1,
+    "mrr": 0.1667
+   },
+   "multisalto": {
+    "n": 3,
+    "recall_1": 0,
+    "recall_3": 3,
+    "mrr": 0.5
+   }
+  },
+  "total": {
+   "n": 49,
+   "recall_1": 34,
+   "recall_3": 42,
+   "mrr": 0.7719
+  },
+  "duro": {
+   "n": 18,
+   "recall_1": 5,
+   "recall_3": 11,
+   "mrr": 0.4531
+  },
+  "ms_mediana": 2.84,
+  "ms_p95": 7.03
+ }
+]

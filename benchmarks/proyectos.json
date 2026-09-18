@@ -1,0 +1,372 @@
+{
+ "corridas": [
+  {
+   "n": 1,
+   "estado": "FALLIDO",
+   "error": null,
+   "por_que": "no compila: sintaxis de src/app.py: FALLO (exit 1)\n\nFile \"src/app.py\", line 66\n    if parte.startswith(\"{\" and parte.endswith(\"}\"):\n",
+   "primera_fase_rota": "sintaxis",
+   "primera_fase_muda": null,
+   "archivos": 19,
+   "lineas": 2054,
+   "marcas_pasan": 0,
+   "marcas_total": 0,
+   "crud_pasan": 0,
+   "reparaciones": 0,
+   "integridad": true,
+   "zip_bytes": 20805,
+   "descargable": true,
+   "cumple_contrato": false,
+   "fases": [
+    [
+     "estructura",
+     "ok"
+    ],
+    [
+     "sintaxis",
+     "fallo"
+    ]
+   ],
+   "segundos": 141.4,
+   "coste": 0.1481,
+   "llamadas": 5
+  },
+  {
+   "n": 2,
+   "estado": "PARCIAL",
+   "error": null,
+   "por_que": "16 de 42 marcadores en FAIL",
+   "primera_fase_rota": "tests",
+   "primera_fase_muda": null,
+   "archivos": 17,
+   "lineas": 2068,
+   "marcas_pasan": 26,
+   "marcas_total": 42,
+   "crud_pasan": 0,
+   "reparaciones": 2,
+   "integridad": true,
+   "zip_bytes": 20350,
+   "descargable": true,
+   "cumple_contrato": false,
+   "fases": [
+    [
+     "estructura",
+     "ok"
+    ],
+    [
+     "sintaxis",
+     "ok"
+    ],
+    [
+     "importaciones",
+     "ok"
+    ],
+    [
+     "tests",
+     "fallo"
+    ],
+    [
+     "comando documentado",
+     "fallo"
+    ],
+    [
+     "reparacion:1",
+     "ok"
+    ],
+    [
+     "tests (tras arreglo)",
+     "fallo"
+    ],
+    [
+     "reparacion:2",
+     "ok"
+    ],
+    [
+     "tests (tras arreglo)",
+     "fallo"
+    ],
+    [
+     "crud",
+     "fallo"
+    ]
+   ],
+   "segundos": 183.8,
+   "coste": 0.157,
+   "llamadas": 7
+  },
+  {
+   "n": 3,
+   "estado": "FALLIDO",
+   "error": null,
+   "por_que": "estructura incompleta: no hay ningun archivo de tests",
+   "primera_fase_rota": "estructura",
+   "primera_fase_muda": null,
+   "archivos": 14,
+   "lineas": 1814,
+   "marcas_pasan": 0,
+   "marcas_total": 0,
+   "crud_pasan": 0,
+   "reparaciones": 0,
+   "integridad": true,
+   "zip_bytes": 17856,
+   "descargable": true,
+   "cumple_contrato": false,
+   "fases": [
+    [
+     "estructura",
+     "fallo"
+    ]
+   ],
+   "segundos": 164.2,
+   "coste": 0.1948,
+   "llamadas": 5
+  },
+  {
+   "n": 4,
+   "estado": "VALIDADO",
+   "error": null,
+   "por_que": "el codigo compila y su grafo de imports resuelve, pero no se pudo ejecutar: urllib2 no esta instalado en esta maquina. El proyecto puede estar bien; aqui no hay",
+   "primera_fase_rota": null,
+   "primera_fase_muda": "importaciones",
+   "archivos": 20,
+   "lineas": 2142,
+   "marcas_pasan": 0,
+   "marcas_total": 0,
+   "crud_pasan": 0,
+   "reparaciones": 0,
+   "integridad": true,
+   "zip_bytes": 22987,
+   "descargable": true,
+   "cumple_contrato": false,
+   "fases": [
+    [
+     "estructura",
+     "ok"
+    ],
+    [
+     "sintaxis",
+     "ok"
+    ],
+    [
+     "importaciones",
+     "limitado"
+    ],
+    [
+     "ejecucion",
+     "limitado"
+    ]
+   ],
+   "segundos": 150.5,
+   "coste": 0.1547,
+   "llamadas": 5
+  },
+  {
+   "n": 5,
+   "estado": "FALLIDO",
+   "error": null,
+   "por_que": "estructura incompleta: no hay ningun archivo de tests",
+   "primera_fase_rota": "estructura",
+   "primera_fase_muda": null,
+   "archivos": 12,
+   "lineas": 906,
+   "marcas_pasan": 0,
+   "marcas_total": 0,
+   "crud_pasan": 0,
+   "reparaciones": 0,
+   "integridad": true,
+   "zip_bytes": 10880,
+   "descargable": true,
+   "cumple_contrato": false,
+   "fases": [
+    [
+     "estructura",
+     "fallo"
+    ]
+   ],
+   "segundos": 116.0,
+   "coste": 0.1402,
+   "llamadas": 5
+  },
+  {
+   "n": 6,
+   "estado": "FALLIDO",
+   "error": null,
+   "por_que": "estructura incompleta: no hay ningun archivo de tests",
+   "primera_fase_rota": "estructura",
+   "primera_fase_muda": null,
+   "archivos": 12,
+   "lineas": 1107,
+   "marcas_pasan": 0,
+   "marcas_total": 0,
+   "crud_pasan": 0,
+   "reparaciones": 0,
+   "integridad": true,
+   "zip_bytes": 11663,
+   "descargable": true,
+   "cumple_contrato": false,
+   "fases": [
+    [
+     "estructura",
+     "fallo"
+    ]
+   ],
+   "segundos": 132.1,
+   "coste": 0.1543,
+   "llamadas": 5
+  },
+  {
+   "n": 7,
+   "estado": "FALLIDO",
+   "error": null,
+   "por_que": "estructura incompleta: no hay ningun archivo de tests",
+   "primera_fase_rota": "estructura",
+   "primera_fase_muda": null,
+   "archivos": 7,
+   "lineas": 480,
+   "marcas_pasan": 0,
+   "marcas_total": 0,
+   "crud_pasan": 0,
+   "reparaciones": 0,
+   "integridad": true,
+   "zip_bytes": 6306,
+   "descargable": true,
+   "cumple_contrato": false,
+   "fases": [
+    [
+     "estructura",
+     "fallo"
+    ]
+   ],
+   "segundos": 119.6,
+   "coste": 0.1082,
+   "llamadas": 5
+  },
+  {
+   "n": 8,
+   "estado": "FALLIDO",
+   "error": null,
+   "por_que": "quedan 2 imports rotos: libros_api/__init__.py no define crear_servidor",
+   "primera_fase_rota": "importaciones",
+   "primera_fase_muda": null,
+   "archivos": 19,
+   "lineas": 1967,
+   "marcas_pasan": 0,
+   "marcas_total": 0,
+   "crud_pasan": 0,
+   "reparaciones": 2,
+   "integridad": true,
+   "zip_bytes": 21943,
+   "descargable": true,
+   "cumple_contrato": false,
+   "fases": [
+    [
+     "estructura",
+     "ok"
+    ],
+    [
+     "sintaxis",
+     "ok"
+    ],
+    [
+     "importaciones",
+     "fallo"
+    ],
+    [
+     "reparacion:1",
+     "ok"
+    ],
+    [
+     "reparacion:2",
+     "ok"
+    ]
+   ],
+   "segundos": 155.8,
+   "coste": 0.1577,
+   "llamadas": 7
+  },
+  {
+   "n": 9,
+   "estado": "PARCIAL",
+   "error": null,
+   "por_que": "los tests pasan, pero el CRUD no se pudo ejercitar entero: faltan 7 operaciones",
+   "primera_fase_rota": "tests",
+   "primera_fase_muda": null,
+   "archivos": 18,
+   "lineas": 1781,
+   "marcas_pasan": 56,
+   "marcas_total": 56,
+   "crud_pasan": 0,
+   "reparaciones": 1,
+   "integridad": true,
+   "zip_bytes": 19772,
+   "descargable": true,
+   "cumple_contrato": false,
+   "fases": [
+    [
+     "estructura",
+     "ok"
+    ],
+    [
+     "sintaxis",
+     "ok"
+    ],
+    [
+     "importaciones",
+     "ok"
+    ],
+    [
+     "tests",
+     "fallo"
+    ],
+    [
+     "comando documentado",
+     "fallo"
+    ],
+    [
+     "reparacion:1",
+     "ok"
+    ],
+    [
+     "tests (tras arreglo)",
+     "ok"
+    ],
+    [
+     "crud",
+     "fallo"
+    ]
+   ],
+   "segundos": 208.0,
+   "coste": 0.1483,
+   "llamadas": 6
+  },
+  {
+   "n": 10,
+   "estado": "FALLIDO",
+   "error": null,
+   "por_que": "estructura incompleta: no hay ningun archivo de tests",
+   "primera_fase_rota": "estructura",
+   "primera_fase_muda": null,
+   "archivos": 11,
+   "lineas": 1282,
+   "marcas_pasan": 0,
+   "marcas_total": 0,
+   "crud_pasan": 0,
+   "reparaciones": 0,
+   "integridad": true,
+   "zip_bytes": 13605,
+   "descargable": true,
+   "cumple_contrato": false,
+   "fases": [
+    [
+     "estructura",
+     "fallo"
+    ]
+   ],
+   "segundos": 138.0,
+   "coste": 0.1528,
+   "llamadas": 5
+  }
+ ],
+ "offline": false,
+ "cuando": "2026-09-15T22:18:54"
+}

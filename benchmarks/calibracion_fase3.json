@@ -1,0 +1,263 @@
+{
+ "brazos": [
+  {
+   "nombre": "baseline · BM25 + 3 indices",
+   "config": {
+    "vector": false,
+    "reranker": false
+   },
+   "familias": {
+    "facil": {
+     "n": 31,
+     "recall_1": 28,
+     "recall_3": 31,
+     "mrr": 0.9516
+    },
+    "parafrasis": {
+     "n": 8,
+     "recall_1": 2,
+     "recall_3": 5,
+     "mrr": 0.4896
+    },
+    "mixto": {
+     "n": 4,
+     "recall_1": 3,
+     "recall_3": 3,
+     "mrr": 0.8
+    },
+    "erratas": {
+     "n": 3,
+     "recall_1": 0,
+     "recall_3": 1,
+     "mrr": 0.1667
+    },
+    "multisalto": {
+     "n": 3,
+     "recall_1": 2,
+     "recall_3": 3,
+     "mrr": 0.7778
+    }
+   },
+   "total": {
+    "n": 49,
+    "recall_1": 35,
+    "recall_3": 43,
+    "mrr": 0.8051
+   },
+   "duro": {
+    "n": 18,
+    "recall_1": 7,
+    "recall_3": 12,
+    "mrr": 0.5528
+   },
+   "ms_mediana": 3.95,
+   "ms_p95": 4.79,
+   "contexto_mediana": 21317,
+   "candidatos": {
+    "conocimiento": 469,
+    "antipatrones": 255,
+    "fallos": 202
+   }
+  },
+  {
+   "nombre": "+ reranker",
+   "config": {
+    "vector": false,
+    "reranker": true
+   },
+   "familias": {
+    "facil": {
+     "n": 31,
+     "recall_1": 28,
+     "recall_3": 30,
+     "mrr": 0.9419
+    },
+    "parafrasis": {
+     "n": 8,
+     "recall_1": 2,
+     "recall_3": 5,
+     "mrr": 0.4271
+    },
+    "mixto": {
+     "n": 4,
+     "recall_1": 4,
+     "recall_3": 4,
+     "mrr": 1.0
+    },
+    "erratas": {
+     "n": 3,
+     "recall_1": 1,
+     "recall_3": 2,
+     "mrr": 0.5
+    },
+    "multisalto": {
+     "n": 3,
+     "recall_1": 2,
+     "recall_3": 3,
+     "mrr": 0.8333
+    }
+   },
+   "total": {
+    "n": 49,
+    "recall_1": 37,
+    "recall_3": 44,
+    "mrr": 0.8289
+   },
+   "duro": {
+    "n": 18,
+    "recall_1": 9,
+    "recall_3": 14,
+    "mrr": 0.6343
+   },
+   "ms_mediana": 10.15,
+   "ms_p95": 21.16,
+   "contexto_mediana": 21808,
+   "candidatos": {
+    "conocimiento": 469,
+    "antipatrones": 255,
+    "fallos": 202
+   }
+  },
+  {
+   "nombre": "+ vector",
+   "config": {
+    "vector": true,
+    "reranker": false
+   },
+   "familias": {
+    "facil": {
+     "n": 31,
+     "recall_1": 28,
+     "recall_3": 30,
+     "mrr": 0.9382
+    },
+    "parafrasis": {
+     "n": 8,
+     "recall_1": 3,
+     "recall_3": 3,
+     "mrr": 0.4554
+    },
+    "mixto": {
+     "n": 4,
+     "recall_1": 3,
+     "recall_3": 4,
+     "mrr": 0.875
+    },
+    "erratas": {
+     "n": 3,
+     "recall_1": 0,
+     "recall_3": 2,
+     "mrr": 0.2778
+    },
+    "multisalto": {
+     "n": 3,
+     "recall_1": 1,
+     "recall_3": 2,
+     "mrr": 0.5667
+    }
+   },
+   "total": {
+    "n": 49,
+    "recall_1": 35,
+    "recall_3": 41,
+    "mrr": 0.791
+   },
+   "duro": {
+    "n": 18,
+    "recall_1": 7,
+    "recall_3": 11,
+    "mrr": 0.5376
+   },
+   "ms_mediana": 47.05,
+   "ms_p95": 58.01,
+   "contexto_mediana": 22999,
+   "candidatos": {
+    "conocimiento": 490,
+    "antipatrones": 294,
+    "fallos": 245
+   }
+  },
+  {
+   "nombre": "+ vector + reranker",
+   "config": {
+    "vector": true,
+    "reranker": true
+   },
+   "familias": {
+    "facil": {
+     "n": 31,
+     "recall_1": 29,
+     "recall_3": 30,
+     "mrr": 0.9581
+    },
+    "parafrasis": {
+     "n": 8,
+     "recall_1": 2,
+     "recall_3": 4,
+     "mrr": 0.4033
+    },
+    "mixto": {
+     "n": 4,
+     "recall_1": 4,
+     "recall_3": 4,
+     "mrr": 1.0
+    },
+    "erratas": {
+     "n": 3,
+     "recall_1": 2,
+     "recall_3": 2,
+     "mrr": 0.6667
+    },
+    "multisalto": {
+     "n": 3,
+     "recall_1": 2,
+     "recall_3": 3,
+     "mrr": 0.8333
+    }
+   },
+   "total": {
+    "n": 49,
+    "recall_1": 39,
+    "recall_3": 43,
+    "mrr": 0.8454
+   },
+   "duro": {
+    "n": 18,
+    "recall_1": 10,
+    "recall_3": 13,
+    "mrr": 0.6515
+   },
+   "ms_mediana": 8.99,
+   "ms_p95": 10.97,
+   "contexto_mediana": 23045,
+   "candidatos": {
+    "conocimiento": 490,
+    "antipatrones": 294,
+    "fallos": 245
+   }
+  }
+ ],
+ "indices": {
+  "trozos_distintos_por_indice": {
+   "conocimiento": 104,
+   "antipatrones": 150,
+   "fallos": 112
+  },
+  "recuperados_totales": 604,
+  "solapes": 123,
+  "llegan_al_contexto": 442,
+  "porcentaje_descartado_por_dedup": 26.8
+ },
+ "rrf": {
+  "detalle": "solo bm25: no hay segunda señal que fusionar",
+  "candidatos_bm25": 20,
+  "candidatos_rrf": 20,
+  "es_passthrough": true
+ },
+ "vector": {
+  "consultas": 20,
+  "candidatos_nuevos_del_vector": 106,
+  "compartidos": 174,
+  "porcentaje_nuevo": 37.9
+ }
+}

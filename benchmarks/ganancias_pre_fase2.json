@@ -1,0 +1,78 @@
+{
+ "vector_signal": {
+  "facil": {
+   "delta_mrr": -0.0761,
+   "coste_normalizado": 0.0008,
+   "medido": "2026-09-15",
+   "base": 0.9355
+  },
+  "parafrasis": {
+   "delta_mrr": -0.1113,
+   "coste_normalizado": 0.0008,
+   "medido": "2026-09-15",
+   "base": 0.4917
+  },
+  "mixto": {
+   "delta_mrr": 0.075,
+   "coste_normalizado": 0.0008,
+   "medido": "2026-09-15",
+   "base": 0.8
+  },
+  "erratas": {
+   "delta_mrr": 0.258,
+   "coste_normalizado": 0.0008,
+   "medido": "2026-09-15",
+   "base": 0.1587
+  },
+  "multisalto": {
+   "delta_mrr": -0.35,
+   "coste_normalizado": 0.0008,
+   "medido": "2026-09-15",
+   "base": 0.8333
+  },
+  "general": {
+   "delta_mrr": -0.0481,
+   "coste_normalizado": 0.0008,
+   "medido": "2026-09-15",
+   "base": 0.5616
+  }
+ },
+ "reranker": {
+  "facil": {
+   "delta_mrr": 0.0376,
+   "coste_normalizado": 0.0044,
+   "medido": "2026-09-15",
+   "base": 0.9355
+  },
+  "parafrasis": {
+   "delta_mrr": -0.1081,
+   "coste_normalizado": 0.0044,
+   "medido": "2026-09-15",
+   "base": 0.4917
+  },
+  "mixto": {
+   "delta_mrr": 0.2,
+   "coste_normalizado": 0.0044,
+   "medido": "2026-09-15",
+   "base": 0.8
+  },
+  "erratas": {
+   "delta_mrr": 0.3413,
+   "coste_normalizado": 0.0044,
+   "medido": "2026-09-15",
+   "base": 0.1587
+  },
+  "multisalto": {
+   "delta_mrr": -0.0555,
+   "coste_normalizado": 0.0044,
+   "medido": "2026-09-15",
+   "base": 0.8333
+  },
+  "general": {
+   "delta_mrr": 0.0441,
+   "coste_normalizado": 0.0044,
+   "medido": "2026-09-15",
+   "base": 0.5616
+  }
+ }
+}
