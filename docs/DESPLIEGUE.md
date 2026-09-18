@@ -21,10 +21,37 @@ docker compose up -d --build                      # la imagen limpia, sin depend
 docker compose --profile identidad up -d --build  # + identidad on-chain (stellar-sdk)
 ```
 
+## Publicar las imagenes
+
+Hay dos caminos y hacen lo mismo. El que manda hoy es el segundo, porque el CI esta
+bloqueado por la facturacion de la cuenta de GitHub y sus jobs no arrancan.
+
+**Desde tu maquina** (el que se usa hoy):
+
+```bash
+./publicar.sh                  # prueba, construye, publica y verifica lo publicado
+./publicar.sh --sin-publicar   # todo menos el push
+```
+
+Aborta si el arbol esta sucio, si el commit no esta en `origin/main`, si falla una de las
+23 suites o uno de los 4 contratos, si hay algo con forma de credencial en lo versionado,
+o si la imagen construida no arranca. Esa regla —no se publica lo que no pasa— es la mitad
+del valor de tener un CI, y se pierde entera si publicas a mano con `docker push`.
+
+Login, una sola vez:
+
+```bash
+gh auth refresh -h github.com -s write:packages
+gh auth token | docker login ghcr.io -u AndJunes --password-stdin
+```
+
+**Desde GitHub Actions**: `.github/workflows/ci.yml` hace exactamente lo mismo en cada
+push a `main`. Esta escrito y sin estrenar; en cuanto se desbloquee la cuenta, funciona
+solo y `publicar.sh` pasa a ser el plan B.
+
 ## En el servidor
 
-El CI construye las dos imagenes en cada push a `main`, las prueba y las publica. El
-servidor **no necesita el codigo fuente, ni Python, ni construir nada**: solo Docker.
+El servidor **no necesita el codigo fuente, ni Python, ni construir nada**: solo Docker.
 
 ```bash
 docker compose -f docker-compose.prod.yml pull
