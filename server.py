@@ -565,9 +565,19 @@ if __name__ == "__main__":
         print("  Sin MIRAG_TOKEN: cualquiera que alcance este puerto puede pedir. Para\n"
               "  que solo entre tu servidor de CodeZard, pon MIRAG_TOKEN y mandalo en\n"
               "  la cabecera X-Mirag-Token.")
+    import skills                              # perezoso, como en el resto del archivo
+    if skills.impedimento_de_ejecucion():
+        print("  Ejecucion apagada: se entrega el codigo y sus tests SIN correrlos, y el "
+              "veredicto\n  sera 'no ejecutado'. Encender con MIRAG_EJECUCION=on.")
     if _host != HOST_POR_DEFECTO:
-        print(f"  AVISO: escuchando en {_host}, no solo en localhost. Este servidor no "
-              f"tiene autenticacion y ejecuta codigo: no lo expongas a una red abierta.")
+        # Este aviso decia "no tiene autenticacion y ejecuta codigo". Las dos cosas
+        # dejaron de ser ciertas —hay MIRAG_TOKEN y ya no se ejecuta nada— y un aviso que
+        # miente es peor que no tenerlo: se aprende a ignorarlo. Ahora dice lo que hay.
+        print(f"  AVISO: escuchando en {_host}, no solo en localhost"
+              + (", y SIN token." if not os.environ.get("MIRAG_TOKEN", "").strip()
+                 else ", con token.")
+              + " Publicalo solo contra\n  127.0.0.1 en el host, o detras de algo que "
+                "autentique.")
     # ThreadingHTTPServer y no HTTPServer: con un solo hilo, una peticion larga
     # (el modo arquitecto son ~10 min) congela la pagina entera.
     ThreadingHTTPServer((_host, _puerto), Handler).serve_forever()
