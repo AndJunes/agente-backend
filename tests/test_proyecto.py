@@ -13,6 +13,7 @@ _RAIZ_REPO = _Path(__file__).resolve().parent.parent
 # `test_cache` importa `cache` (experimental/) y `test_plan` importa `eval` (benchmarks/).
 for _d in (_RAIZ_REPO, _RAIZ_REPO / "experimental", _RAIZ_REPO / "benchmarks"):
     _sys.path.insert(0, str(_d))
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -28,6 +29,13 @@ AQUI = Path(__file__).parent
 # colgaban de `AQUI`, mover el test a tests/ los dejaba mirando una carpeta vacia y
 # el test pasaba sin comprobar nada.
 RAIZ = Path(P.__file__).resolve().parent
+# La ejecucion real esta APAGADA por defecto (skills.impedimento_de_ejecucion): en
+# produccion este agente entrega el codigo y sus casos de test sin correrlos, y de eso se
+# encarga el agente de QA. Estos casos existen para demostrar que cuando SI se ejecuta, la
+# maquina no miente sobre lo que vio — asi que la encienden a proposito.
+# La bandera se lee en cada llamada, no al importar, justo para permitir esto.
+os.environ.setdefault("MIRAG_EJECUCION", "on")
+
 casos = []
 
 

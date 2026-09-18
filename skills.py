@@ -48,6 +48,33 @@ def cajas_relacionadas(caja: str) -> str:
     return rag.cajas_relacionadas(caja)
 
 
+VAR_EJECUCION = "MIRAG_EJECUCION"
+
+
+def impedimento_de_ejecucion():
+    """Vacio si se puede ejecutar; si no, el motivo — ya con el prefijo que `veredicto()` lee.
+
+    Se lee en CADA llamada y no al importar, como `blockchain/config.py:43`. No es un
+    capricho: permite que los tests enciendan y apaguen la ejecucion entre casos, que es
+    lo que deja apagarla por defecto sin tirar los ~45 casos que la ejercitan.
+
+    Por que el motivo empieza por "NO EJECUTADO" y no por cualquier otra cosa: porque
+    `veredicto()` traduce esa cadena exacta al estado `no_ejecutado` (skills.py, mas
+    abajo). Devolver "" o un texto cualquiera caeria en el fallback y daria
+    `sin_evidencia`, que significa "corrio y no imprimio nada" — y seria MENTIRA: no
+    corrio. Estrenar una mentira nueva para apagar una funcion no compensa.
+
+    El defecto es `off` porque este agente ya no ejecuta lo que genera: entrega el codigo
+    y sus casos de test, y ejecutarlos es trabajo del agente de QA.
+    """
+    v = os.environ.get(VAR_EJECUCION, "off").strip().lower()
+    if v in ("on", "1", "true", "si", "yes"):
+        return ""
+    return ("NO EJECUTADO: la ejecucion esta apagada (MIRAG_EJECUCION=off). El codigo y sus "
+            "casos de test se entregan sin correr; ejecutarlos es trabajo del agente de QA. "
+            "Esto no es un aprobado ni un suspenso: no se ha observado nada.")
+
+
 CONSERVAR_DEL_ENTORNO = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR")
 
 
@@ -80,7 +107,13 @@ def verificar_codigo(archivos: dict, comando: str) -> str:
     Es la unica skill que produce EVIDENCIA en vez de opinion: o los tests pasan o no.
     Aislamiento minimo (allowlist de binarios, timeout, directorio temporal): suficiente
     para un demo local, NO es un sandbox de verdad.
+
+    Por defecto NO ejecuta: ver `impedimento_de_ejecucion()`. La capacidad sigue entera y
+    los tests la encienden; lo que cambia es que en produccion nadie corre codigo ajeno.
     """
+    impedimento = impedimento_de_ejecucion()
+    if impedimento:                       # antes de tocar el disco siquiera
+        return impedimento
     if not archivos:
         return "NO EJECUTADO: no has pasado ningun archivo."
     try:

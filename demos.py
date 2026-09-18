@@ -20,7 +20,19 @@ COMO QUEDA
     enseña de verdad, que es lo unico que aqui no es simulado.
 """
 
+import os
 import re
+
+# Las demos ENCIENDEN la ejecucion a proposito, y hay que decir por que para que nadie se
+# confunda: en produccion esta APAGADA (skills.impedimento_de_ejecucion), porque este
+# agente entrega el codigo y sus casos de test sin correrlos — de eso se encargara el
+# agente de QA. Lo que estas demos ensenan es la maquinaria de verificacion: que cuando
+# algo SI se ejecuta, el veredicto sale de lo observado y no de lo que diga el modelo.
+# Esa maquinaria sigue entera, apagada, y es la que heredara QA.
+#
+# Sin esto las cuatro demos saldrian GENERADO / no_ejecutado: honesto, pero no demuestra
+# nada, que es justo lo contrario de para lo que existen.
+os.environ.setdefault("MIRAG_EJECUCION", "on")
 
 import dobles
 

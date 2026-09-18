@@ -15,6 +15,7 @@ Los anti-patrones recuperados son de cubrimiento OBLIGATORIO: no dependemos de q
 al modelo se le ocurra probar concurrencia, se lo exige el corpus.
 """
 
+import ast
 import codecs
 import json
 import re
@@ -64,14 +65,27 @@ def _una_llamada(prompt, system, tools):
 
 
 def _comprobar_sintaxis(archivos):
-    """Gratis, y se come la mitad de los fallos antes de ejecutar nada."""
+    """Gratis, y se come la mitad de los fallos antes de ejecutar nada.
+
+    Python se comprueba con `ast.parse` EN ESTE MISMO PROCESO: analiza el codigo sin
+    ejecutar ni una linea, no necesita subprocess y por tanto sigue funcionando con la
+    ejecucion apagada. Antes lanzaba `python3 -m py_compile` en un proceso hijo, y eso
+    tenia un fallo silencioso: con la ejecucion apagada la skill devuelve `no_ejecutado`,
+    que la comprobacion de abajo contaba como rojo — o sea que marcaba como SINTAXIS ROTA
+    codigo perfectamente valido, y el proyecto salia FALLIDO sin motivo.
+
+    JavaScript no tiene equivalente en la biblioteca estandar: `node --check` es un
+    proceso aparte. Si la ejecucion esta apagada, el .js no se comprueba y no se finge lo
+    contrario; el que decide es `skills.impedimento_de_ejecucion()`.
+    """
     for ruta in archivos:
-        if ruta.endswith(".js"):
+        if ruta.endswith(".py"):
+            try:
+                ast.parse(archivos[ruta], filename=ruta)
+            except SyntaxError as e:
+                return f"sintaxis de {ruta}: linea {e.lineno}: {e.msg}"
+        elif ruta.endswith(".js") and not skills.impedimento_de_ejecucion():
             r = SKILLS["verificar_codigo"](archivos, f"node --check {ruta}")
-            if skills.veredicto(r)[0] in ("rojo", "no_ejecutado"):
-                return f"sintaxis de {ruta}: {r}"
-        elif ruta.endswith(".py"):
-            r = SKILLS["verificar_codigo"](archivos, f"python3 -m py_compile {ruta}")
             if skills.veredicto(r)[0] in ("rojo", "no_ejecutado"):
                 return f"sintaxis de {ruta}: {r}"
     return None
@@ -374,7 +388,8 @@ los tests: una entrega que no cabe llega cortada y no sirve para nada.""",
 
     # ── 5. ARREGLAR UNA VEZ · 1 llamada ──────────────────────────────────────
     arreglado = False
-    if skills.veredicto(salida)[0] != "verde":
+    # `no_ejecutado` no es un fallo que arreglar: es que nadie miro. Ver pipeline.py.
+    if skills.veredicto(salida)[0] not in ("verde", "no_ejecutado"):
         log("\n[LLM 3/3] un intento de arreglo (y solo uno)")
         aviso("fase", texto="5 · Un arreglo, y solo uno · 1 llamada")
         msg = _una_llamada(
@@ -395,8 +410,13 @@ los tests: una entrega que no cabe llega cortada y no sirve para nada.""",
             aviso("skill", nombre="verificar_codigo (tras el arreglo)",
                   args={"comando": entrega.get("comando_test")}, resultado=salida)
 
-    verde = skills.veredicto(salida)[0] == "verde"
-    r = {"estado": "verde" if verde else "rojo", "plan": plan, "entrega": entrega,
+    # Antes esto era binario: `"verde" if verde else "rojo"`. Con la ejecucion apagada
+    # decia ROJO, o sea "se ejecuto y fallo", de algo que nadie llego a ejecutar. Se
+    # propaga el estado tal cual lo dio `veredicto`; server.py:43 ya sabe pintar los
+    # cuatro, incluido `no_ejecutado`.
+    estado_ejec = skills.veredicto(salida)[0]
+    verde = estado_ejec == "verde"
+    r = {"estado": estado_ejec, "plan": plan, "entrega": entrega,
             "cajas": cajas, "tokens_contexto": len(base) // 4,
             "salida": salida, "arreglado": arreglado,
             "sin_cubrir": _lista_de_textos(entrega.get("sin_cubrir")),

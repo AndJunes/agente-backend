@@ -173,73 +173,87 @@ def certificar(proy, comando_test=None, al_avanzar=None, reparador=None):
             tuple(fases), tuple(hallazgos), {}, reparaciones=tuple(reparaciones),
             interprete=_binario())
 
-    # ── 4. tests del proyecto ───────────────────────────────────────────────
-    # SIEMPRE por la sonda. Si se usara el comando del proyecto a secas, `unittest` no
-    # imprime marcadores y la fase sale "SIN EVIDENCIA" — y ese silencio quedaba tapado
-    # por los marcadores del CRUD, dando un VERIFICADO falso. La sonda emite uno por
-    # test, asi que la evidencia no depende de que al modelo se le ocurra imprimirla.
-    t = reloj()
-    extra = sondas.tests("tests")
-    salida_tests = SKILLS["verificar_codigo"]({**proy.planos(), **extra},
-                                              "python3 _sonda_tests.py")
-    ejec = skills.resultado_de(salida_tests)
-    anota(Fase("tests", {"verde": "ok", "rojo": "fallo"}.get(ejec.estado, "limitado"),
-               ejec.cabecera, (reloj() - t) * 1000, salida_tests))
-    marcas = dict(ejec.marcas)
-
-    # Y aparte, el comando que el README le dice al usuario que ejecute. Si ese falla,
-    # da igual que la sonda vaya bien: lo que el usuario escriba no le va a funcionar.
-    if comando_test:
-        t = reloj()
-        salida_doc = SKILLS["verificar_codigo"](proy.planos(), comando_test)
-        doc = skills.resultado_de(salida_doc)
-        # Aqui NO se piden marcadores: un `unittest` normal no los imprime y no tiene por
-        # que. Lo que se comprueba es que el comando del README funcione, porque es el
-        # que va a escribir quien descomprima el ZIP.
-        roto = doc.estado in ("rojo", "no_ejecutado")
-        anota(Fase("comando documentado", "fallo" if roto else "ok",
-                   (f"`{comando_test}` falla: {doc.cabecera}" if roto
-                    else f"`{comando_test}` corre sin errores"),
-                   (reloj() - t) * 1000, salida_doc))
-
-    if ejec.estado == "rojo" and reparador:
-        for intento in range(len(reparaciones) + 1, MAXIMAS_REPARACIONES + 1):
-            t = reloj()
-            nuevo, cambiados, causa = reparador(proy, [], salida_tests, intento)
-            reparaciones.append({"intento": intento, "archivos": list(cambiados),
-                                 "causa": causa, "motivo": "tests en rojo"})
-            anota(Fase(f"reparacion:{intento}", "ok" if cambiados else "fallo",
-                       f"{len(cambiados)} archivos tocados por tests en rojo",
-                       (reloj() - t) * 1000))
-            if not cambiados:
-                break
-            proy = nuevo
-            salida_tests = SKILLS["verificar_codigo"]({**proy.planos(), **extra},
-                                                      "python3 _sonda_tests.py")
-            ejec = skills.resultado_de(salida_tests)
-            anota(Fase("tests (tras arreglo)",
-                       {"verde": "ok", "rojo": "fallo"}.get(ejec.estado, "limitado"),
-                       ejec.cabecera, 0.0, salida_tests))
-            marcas = dict(ejec.marcas)
-            if ejec.estado == "verde":
-                break
-
-    # ── 5. CRUD real, si el proyecto expone el contrato ─────────────────────
-    entrypoint = _entrypoint(proy)
-    ids_crud = ()
-    if entrypoint:
-        t = reloj()
-        marca = sondas.nonce()
-        ids_crud = sondas.ids_crud(marca)
-        salida_crud = SKILLS["verificar_codigo"](
-            {**proy.planos(), **sondas.crud(entrypoint, marca)}, "python3 _sonda_crud.py")
-        crud = skills.resultado_de(salida_crud)
-        anota(Fase("crud", {"verde": "ok", "rojo": "fallo"}.get(crud.estado, "limitado"),
-                   crud.cabecera, (reloj() - t) * 1000, salida_crud))
-        marcas.update(crud.marcas)
+    # Las secciones 4 y 5 son las UNICAS que ejecutan el proyecto. Si la ejecucion esta
+    # apagada no se anota ninguna de sus fases, y eso es deliberado, no pereza:
+    # `derivar_estado` devuelve EJECUTADO en cuanto EXISTE una fase llamada "tests", con
+    # el motivo "el comando de tests corrio y no imprimio un solo marcador". Con la
+    # ejecucion apagada eso seria falso — no corrio nada. Sin esas fases cae en GENERADO,
+    # "hay archivos y nada se ha llegado a ejecutar", que es justo lo que ha pasado.
+    #
+    # Lo de arriba (estructura, sintaxis con ast, imports) NO se toca: es analisis
+    # estatico, no ejecuta nada, y sigue siendo lo que caza los fallos de verdad.
+    impedimento = skills.impedimento_de_ejecucion()
+    marcas, ids_crud = {}, ()
+    if impedimento:
+        anota(Fase("ejecucion", "omitido", impedimento.split(". ")[0], 0.0))
     else:
-        anota(Fase("crud", "omitido",
-                   "el proyecto no expone crear_servidor(): no hay API que ejercitar"))
+        # ── 4. tests del proyecto ───────────────────────────────────────────────
+        # SIEMPRE por la sonda. Si se usara el comando del proyecto a secas, `unittest` no
+        # imprime marcadores y la fase sale "SIN EVIDENCIA" — y ese silencio quedaba tapado
+        # por los marcadores del CRUD, dando un VERIFICADO falso. La sonda emite uno por
+        # test, asi que la evidencia no depende de que al modelo se le ocurra imprimirla.
+        t = reloj()
+        extra = sondas.tests("tests")
+        salida_tests = SKILLS["verificar_codigo"]({**proy.planos(), **extra},
+                                                  "python3 _sonda_tests.py")
+        ejec = skills.resultado_de(salida_tests)
+        anota(Fase("tests", {"verde": "ok", "rojo": "fallo"}.get(ejec.estado, "limitado"),
+                   ejec.cabecera, (reloj() - t) * 1000, salida_tests))
+        marcas = dict(ejec.marcas)
+
+        # Y aparte, el comando que el README le dice al usuario que ejecute. Si ese falla,
+        # da igual que la sonda vaya bien: lo que el usuario escriba no le va a funcionar.
+        if comando_test:
+            t = reloj()
+            salida_doc = SKILLS["verificar_codigo"](proy.planos(), comando_test)
+            doc = skills.resultado_de(salida_doc)
+            # Aqui NO se piden marcadores: un `unittest` normal no los imprime y no tiene por
+            # que. Lo que se comprueba es que el comando del README funcione, porque es el
+            # que va a escribir quien descomprima el ZIP.
+            roto = doc.estado in ("rojo", "no_ejecutado")
+            anota(Fase("comando documentado", "fallo" if roto else "ok",
+                       (f"`{comando_test}` falla: {doc.cabecera}" if roto
+                        else f"`{comando_test}` corre sin errores"),
+                       (reloj() - t) * 1000, salida_doc))
+
+        if ejec.estado == "rojo" and reparador:
+            for intento in range(len(reparaciones) + 1, MAXIMAS_REPARACIONES + 1):
+                t = reloj()
+                nuevo, cambiados, causa = reparador(proy, [], salida_tests, intento)
+                reparaciones.append({"intento": intento, "archivos": list(cambiados),
+                                     "causa": causa, "motivo": "tests en rojo"})
+                anota(Fase(f"reparacion:{intento}", "ok" if cambiados else "fallo",
+                           f"{len(cambiados)} archivos tocados por tests en rojo",
+                           (reloj() - t) * 1000))
+                if not cambiados:
+                    break
+                proy = nuevo
+                salida_tests = SKILLS["verificar_codigo"]({**proy.planos(), **extra},
+                                                          "python3 _sonda_tests.py")
+                ejec = skills.resultado_de(salida_tests)
+                anota(Fase("tests (tras arreglo)",
+                           {"verde": "ok", "rojo": "fallo"}.get(ejec.estado, "limitado"),
+                           ejec.cabecera, 0.0, salida_tests))
+                marcas = dict(ejec.marcas)
+                if ejec.estado == "verde":
+                    break
+
+        # ── 5. CRUD real, si el proyecto expone el contrato ─────────────────────
+        entrypoint = _entrypoint(proy)
+        ids_crud = ()
+        if entrypoint:
+            t = reloj()
+            marca = sondas.nonce()
+            ids_crud = sondas.ids_crud(marca)
+            salida_crud = SKILLS["verificar_codigo"](
+                {**proy.planos(), **sondas.crud(entrypoint, marca)}, "python3 _sonda_crud.py")
+            crud = skills.resultado_de(salida_crud)
+            anota(Fase("crud", {"verde": "ok", "rojo": "fallo"}.get(crud.estado, "limitado"),
+                       crud.cabecera, (reloj() - t) * 1000, salida_crud))
+            marcas.update(crud.marcas)
+        else:
+            anota(Fase("crud", "omitido",
+                       "el proyecto no expone crear_servidor(): no hay API que ejercitar"))
 
     evidencia = rapido._evidencia(
         [{"riesgo": f"la operacion {i.split('_')[1]} no funciona de verdad",

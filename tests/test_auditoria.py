@@ -15,6 +15,7 @@ _RAIZ_REPO = _Path(__file__).resolve().parent.parent
 # `test_cache` importa `cache` (experimental/) y `test_plan` importa `eval` (benchmarks/).
 for _d in (_RAIZ_REPO, _RAIZ_REPO / "experimental", _RAIZ_REPO / "benchmarks"):
     _sys.path.insert(0, str(_d))
+import os
 import sys
 
 import agent
@@ -22,6 +23,13 @@ import auditoria
 import dobles
 import estado
 import skills
+
+# La ejecucion real esta APAGADA por defecto (skills.impedimento_de_ejecucion): en
+# produccion este agente entrega el codigo y sus casos de test sin correrlos, y de eso se
+# encarga el agente de QA. Estos casos existen para demostrar que cuando SI se ejecuta, la
+# maquina no miente sobre lo que vio — asi que la encienden a proposito.
+# La bandera se lee en cada llamada, no al importar, justo para permitir esto.
+os.environ.setdefault("MIRAG_EJECUCION", "on")
 
 casos = []
 
@@ -168,6 +176,119 @@ def al_modelo_se_le_dice_la_regla():
     desc = next(t["function"] for t in skills.TOOLS
                 if t["function"]["name"] == "verificar_codigo")["description"]
     assert "TEST:<id>:PASS" in desc, "la descripcion de verificar_codigo tampoco"
+
+
+# ══ La ejecucion APAGADA · que apagarla no estrene una mentira ═══════════════
+#
+# Estos cinco casos son el contrapeso de todos los de arriba. Arriba se comprueba que
+# cuando se ejecuta, la maquina no exagera lo que vio. Aqui, que cuando NO se ejecuta, no
+# finge haberlo hecho — que es la forma facil de mentir al quitar una funcion.
+
+def _apagada(fn):
+    """Corre fn() con la ejecucion apagada y devuelve lo que salga, restaurando despues."""
+    previo = os.environ.get("MIRAG_EJECUCION")
+    try:
+        os.environ["MIRAG_EJECUCION"] = "off"
+        return fn()
+    finally:
+        if previo is None:
+            os.environ.pop("MIRAG_EJECUCION", None)
+        else:
+            os.environ["MIRAG_EJECUCION"] = previo
+
+
+def apagada_el_veredicto_es_no_ejecutado_y_nunca_sin_evidencia():
+    """El fallo que este caso impide es sutil y por eso esta escrito aparte.
+
+    `skills.veredicto("")` NO devuelve `no_ejecutado`: cae en su fallback y devuelve
+    `sin_evidencia`, que significa "corrio y no imprimio ni un marcador". Si apagar la
+    ejecucion se hubiera hecho devolviendo vacio, el sistema afirmaria que hubo una
+    ejecucion muda. No la hubo. Son dos cosas distintas y el usuario tiene derecho a
+    distinguirlas.
+    """
+    salida = _apagada(lambda: skills.verificar_codigo(
+        {"test_x.py": "print('TEST:a:PASS')\n"}, "python3 test_x.py"))
+    estado, cabecera, marcas = skills.veredicto(salida)
+    assert estado == "no_ejecutado", f"apagada deberia dar no_ejecutado y da {estado!r}"
+    assert estado != "sin_evidencia", "sin_evidencia afirma una ejecucion que no ocurrio"
+    assert not marcas, "no puede haber marcadores de algo que no corrio"
+    assert "MIRAG_EJECUCION" in salida, "el motivo no dice como se enciende"
+    # y el marcador del guion NO puede aparecer: nadie lo imprimio
+    assert "TEST:a:PASS" not in salida
+
+
+def apagada_no_se_ejecuta_nada_aunque_el_comando_sea_valido():
+    """El guard va ANTES de tocar el disco: ni se escribe el temporal."""
+    testigo = {"corrio": False}
+    guion = "import pathlib; pathlib.Path('/tmp/mirag_testigo_no_debe_existir').write_text('x')"
+    import pathlib
+    rastro = pathlib.Path("/tmp/mirag_testigo_no_debe_existir")
+    rastro.unlink(missing_ok=True)
+    _apagada(lambda: skills.verificar_codigo({"test_x.py": guion}, "python3 test_x.py"))
+    assert not rastro.exists(), "se ejecuto el codigo con la ejecucion apagada"
+    assert not testigo["corrio"]
+
+
+def apagada_ningun_bucle_de_reparacion_llama_al_modelo():
+    """El bucle de arreglo se dispara con "no verde". `no_ejecutado` no es verde.
+
+    Sin la guarda, apagar la ejecucion hacia que CADA peticion de codigo gastara una
+    llamada extra al modelo para "arreglar" un fallo que nadie habia visto, mandandole
+    como SALIDA REAL el texto de que no se ejecuto nada. Se paga por reparar a ciegas.
+    """
+    import pipeline
+    fuente = _Path(pipeline.__file__).read_text()
+    i = fuente.index("if not verde")
+    condicion = fuente[i:fuente.index(":", i)]
+    assert "no_ejecutado" in condicion, \
+        f"pipeline dispara el arreglo sin mirar si hubo ejecucion: {condicion!r}"
+
+    import rapido
+    fuente_r = _Path(rapido.__file__).read_text()
+    j = fuente_r.index('arreglado = False')
+    assert "no_ejecutado" in fuente_r[j:j + 400], \
+        "rapido dispara el arreglo aunque no se haya ejecutado nada"
+
+
+def apagada_el_proyecto_queda_generado_y_no_ejecutado():
+    """GENERADO es "hay archivos y nada se ha llegado a ejecutar". Ese es el estado.
+
+    EJECUTADO seria mentira, y estaba a un paso: derivar_estado lo devuelve en cuanto
+    EXISTE una fase llamada "tests", con el motivo "el comando de tests corrio y no
+    imprimio un solo marcador". Por eso con la ejecucion apagada no se anota esa fase.
+    """
+    import verificacion_proyecto as VP
+    sin_ejecucion = (VP.Fase("estructura", "ok", "", 0.0),
+                     VP.Fase("sintaxis", "ok", "", 0.0),
+                     VP.Fase("ejecucion", "omitido", "la ejecucion esta apagada", 0.0))
+    estado, por_que = VP.derivar_estado(sin_ejecucion, {}, (), ())
+    assert estado == "GENERADO", f"sin ejecucion el estado deberia ser GENERADO, es {estado}"
+    assert "nada se ha llegado a ejecutar" in por_que, por_que
+
+    # y el contraste: si alguien anotara una fase "tests", saldria EJECUTADO. Este
+    # assert no valida produccion, documenta POR QUE produccion no anota esa fase.
+    con_fase_tests = sin_ejecucion + (VP.Fase("tests", "limitado", "", 0.0),)
+    otro, _ = VP.derivar_estado(con_fase_tests, {}, (), ())
+    assert otro == "EJECUTADO", "si esto cambia, la guarda de verificacion_proyecto sobra"
+
+
+def apagada_la_sintaxis_se_sigue_comprobando_sin_ejecutar():
+    """Apagar la ejecucion no puede apagar el analisis estatico.
+
+    `_comprobar_sintaxis` usaba `python3 -m py_compile` en un proceso hijo. Con la
+    ejecucion apagada ese camino devolvia `no_ejecutado`, que la funcion contaba como
+    rojo: marcaba SINTAXIS ROTA sobre codigo valido y el proyecto salia FALLIDO sin
+    motivo. Ahora Python se analiza con ast.parse en este proceso: no ejecuta nada.
+    """
+    import rapido
+    bueno = {"a.py": "def f():\n    return 1\n"}
+    malo = {"b.py": "def f(:\n"}
+    assert _apagada(lambda: rapido._comprobar_sintaxis(bueno)) is None, \
+        "codigo valido reportado como sintaxis rota con la ejecucion apagada"
+    fallo = _apagada(lambda: rapido._comprobar_sintaxis(malo))
+    assert fallo and "b.py" in fallo, f"un error de sintaxis real deberia cazarse: {fallo!r}"
+    assert "NO EJECUTADO" not in (fallo or ""), \
+        "el motivo confunde 'no se ejecuto' con 'la sintaxis esta rota'"
 
 
 if __name__ == "__main__":

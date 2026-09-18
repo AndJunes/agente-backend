@@ -37,6 +37,13 @@ _RAIZ_PROD = Path(traza.__file__).resolve().parent
 # colgaban de `AQUI`, mover el test a tests/ los dejaba mirando una carpeta vacia y
 # el test pasaba sin comprobar nada.
 RAIZ = Path(traza.__file__).resolve().parent
+# La ejecucion real esta APAGADA por defecto (skills.impedimento_de_ejecucion): en
+# produccion este agente entrega el codigo y sus casos de test sin correrlos, y de eso se
+# encarga el agente de QA. Estos casos existen para demostrar que cuando SI se ejecuta, la
+# maquina no miente sobre lo que vio — asi que la encienden a proposito.
+# La bandera se lee en cada llamada, no al importar, justo para permitir esto.
+os.environ.setdefault("MIRAG_EJECUCION", "on")
+
 casos = []
 
 

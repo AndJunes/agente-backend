@@ -303,7 +303,12 @@ def ejecutar(pregunta, k=5, familia="general", al_avanzar=None, guardar=True,
                        salida.splitlines()[0] if salida else "(sin salida)", ms(),
                        "ejecucion", salida[:2000]))
 
-            if not verde and MAX_ARREGLOS:
+            # `and estado_ejec != "no_ejecutado"`: sin ejecucion no hay nada que arreglar.
+            # Sin esta guarda el bucle disparaba SIEMPRE con la ejecucion apagada —
+            # `no_ejecutado` no es "verde"— y gastaba una llamada al modelo mandandole
+            # como "SALIDA REAL" el texto de que no se ejecuto nada. Una reparacion a
+            # ciegas, pagada, de un fallo que nadie ha visto.
+            if not verde and estado_ejec != "no_ejecutado" and MAX_ARREGLOS:
                 ms = _reloj()
                 try:
                     arreglo = agent.llm(

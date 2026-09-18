@@ -5,10 +5,16 @@
 # peticion de quien abra la pagina, y NO TIENE AUTENTICACION. Todo lo de abajo asume que
 # ese codigo es hostil, porque para el caso lo es.
 
+# Dos destinos desde el mismo Dockerfile. `mirag` es el de siempre, sin una sola
+# dependencia. `mirag-identidad` añade stellar-sdk y solo arranca si lo pides:
+#   docker compose up -d                            → la imagen limpia
+#   docker compose --profile identidad up -d        → la que habla con Stellar
 services:
   mirag:
-    build: .
-    image: mirag:local
+    build:
+      context: .
+      target: base
+    image: mirag:base
     container_name: mirag
 
     # 127.0.0.1 EN EL LADO DEL HOST, y esto es lo mas importante del archivo.
@@ -18,16 +24,16 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
 
+
+    # La clave NO se escribe aqui. Un docker-compose.yml acaba en git; un .env, no.
+    # Tampoco se usa `env_file`, y el motivo es concreto: env_file mete el .env ENTERO,
+    # incluida STELLAR_SECRET_KEY, que este contenedor no necesita para nada (ver abajo).
+    # Con `${VAR}` Compose lee el mismo .env pero entra SOLO lo que se nombra aqui.
     environment:
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
       MIRAG_HOST: 0.0.0.0        # dentro del contenedor; ver el comentario del Dockerfile
       MIRAG_OFFLINE: "1"         # "0" para respuestas reales, y entonces hace falta clave
       LIMITE_USD: "0.50"         # tope por peticion: el agente corta antes de pasarse
-
-    # La clave NO se escribe aqui. Un docker-compose.yml acaba en git; un .env, no.
-    # Se lee del .env de al lado, que ya esta en .gitignore y en .dockerignore.
-    env_file:
-      - path: .env
-        required: false
 
     # ── Contencion ────────────────────────────────────────────────────────────────
     # no-new-privileges: ni un `sudo` ni un binario setuid pueden escalar desde dentro.
@@ -63,3 +69,41 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  # La misma imagen + stellar-sdk. Solo con `--profile identidad`.
+  mirag-identidad:
+    profiles: ["identidad"]
+    build:
+      context: .
+      target: identidad
+    image: mirag:identidad
+    container_name: mirag-identidad
+    ports:
+      - "127.0.0.1:8001:8000"
+
+    # AQUI ESTA LO IMPORTANTE, y es una propiedad medida, no una precaucion:
+    # para MOSTRAR la identidad solo se hacen lecturas sin firmar
+    # (blockchain/stellar/client.py:121-130), asi que bastan la clave PUBLICA y el id.
+    # La semilla solo hace falta en `invocar()` (client.py:133), que solo llaman
+    # registro.registrar() y registro.asociar_wallet(), y a esos solo los llama el demo
+    # con --registrar. Registrar es una operacion manual, local y de una vez.
+    # Por eso STELLAR_SECRET_KEY no aparece aqui: el contenedor no la necesita nunca.
+    environment:
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      MIRAG_HOST: 0.0.0.0
+      MIRAG_OFFLINE: "1"
+      LIMITE_USD: "0.50"
+      MIRAG_BLOCKCHAIN: testnet
+      STELLAR_PUBLIC_KEY: "${STELLAR_PUBLIC_KEY:-}"
+      STELLAR_AGENT_ID: "${STELLAR_AGENT_ID:-}"
+
+    security_opt: [ "no-new-privileges:true" ]
+    cap_drop: [ ALL ]
+    tmpfs: [ "/tmp:rw,noexec,nosuid,size=64m" ]
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 1.5
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }

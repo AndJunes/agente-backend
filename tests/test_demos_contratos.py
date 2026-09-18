@@ -22,6 +22,7 @@ import http.client
 import json
 import shutil
 import subprocess
+import os
 import sys
 import threading
 from http.server import ThreadingHTTPServer
@@ -35,6 +36,13 @@ import server as _srv
 # `index.html` es de PRODUCCION: se ancla al modulo que lo sirve, no a esta carpeta.
 # Colgado de `AQUI` dejaba de encontrarse en cuanto el test cambiaba de sitio.
 _PAGINA = Path(_srv.__file__).resolve().parent / "index.html"
+# La ejecucion real esta APAGADA por defecto (skills.impedimento_de_ejecucion): en
+# produccion este agente entrega el codigo y sus casos de test sin correrlos, y de eso se
+# encarga el agente de QA. Estos casos existen para demostrar que cuando SI se ejecuta, la
+# maquina no miente sobre lo que vio — asi que la encienden a proposito.
+# La bandera se lee en cada llamada, no al importar, justo para permitir esto.
+os.environ.setdefault("MIRAG_EJECUCION", "on")
+
 casos = []
 
 

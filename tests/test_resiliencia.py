@@ -17,6 +17,7 @@ _RAIZ_REPO = _Path(__file__).resolve().parent.parent
 for _d in (_RAIZ_REPO, _RAIZ_REPO / "experimental", _RAIZ_REPO / "benchmarks"):
     _sys.path.insert(0, str(_d))
 import json
+import os
 import sys
 
 import agent
@@ -30,6 +31,13 @@ import rag
 import rapido
 import skills
 import suficiencia
+
+# La ejecucion real esta APAGADA por defecto (skills.impedimento_de_ejecucion): en
+# produccion este agente entrega el codigo y sus casos de test sin correrlos, y de eso se
+# encarga el agente de QA. Estos casos existen para demostrar que cuando SI se ejecuta, la
+# maquina no miente sobre lo que vio — asi que la encienden a proposito.
+# La bandera se lee en cada llamada, no al importar, justo para permitir esto.
+os.environ.setdefault("MIRAG_EJECUCION", "on")
 
 casos = []
 
