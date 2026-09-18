@@ -77,6 +77,21 @@ que solo descarga al desplegar.
 push a `main`. Esta escrito y sin estrenar; en cuanto se desbloquee la cuenta, funciona
 solo y `publicar.sh` pasa a ser el plan B.
 
+## Que servidor hace falta
+
+Medido, no estimado: la imagen ocupa 154 MB (181 la de identidad), y el compose le pone un
+techo de 1 GB de RAM y 1,5 CPU al contenedor. El agente no tiene base de datos ni guarda
+nada entre reinicios. Con CodeZard al lado en la misma maquina, **2 vCPU y 2 GB** van
+comodos; 4 GB si CodeZard crece.
+
+Lo importante para elegir: este agente **no publica ningun puerto**, asi que el cortafuegos
+del servidor solo necesita el 22 abierto (SSH), y mas adelante el 80 y el 443 para
+CodeZard. Nada mas mira a internet.
+
+La latencia casi no cuenta: una peticion tarda de segundos a minutos, asi que 100 ms de
+mas al otro lado del Atlantico no se notan. Solo importa si algun dia CodeZard sirve
+paginas a usuarios finales desde ahi.
+
 ## En el servidor, paso a paso
 
 El servidor **no necesita el codigo fuente, ni Python, ni construir nada**: solo Docker y
