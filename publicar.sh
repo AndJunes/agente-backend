@@ -13,8 +13,26 @@
 
 set -euo pipefail
 
-# GHCR exige minusculas en el nombre del repositorio. `AndJunes` no vale; `andjunes` si.
-IMAGEN="ghcr.io/andjunes/agente-backend"
+# El registro no esta codificado a mano: se puede publicar en Docker Hub, en GHCR o en
+# cualquier otro sin tocar este archivo.
+#
+#   MIRAG_IMAGEN=tuusuario/agente-backend              ./publicar.sh   # Docker Hub
+#   MIRAG_IMAGEN=ghcr.io/andjunes/agente-backend       ./publicar.sh   # GHCR
+#
+# Si no se dice nada, se deduce del usuario con el que hiciste `docker login`. Deducirlo
+# evita el error mas tonto de todos: construir cuatro imagenes etiquetadas con el usuario
+# equivocado y descubrirlo en el push.
+IMAGEN="${MIRAG_IMAGEN:-}"
+if [ -z "$IMAGEN" ]; then
+  usuario="$(docker info 2>/dev/null | awk -F': ' '/^ Username:/ {print $2}' | tr -d ' ')"
+  [ -n "$usuario" ] || { printf "\n\033[31m✗ no se de que usuario etiquetar la imagen.\033[0m\n" >&2
+    printf "  Haz login:            docker login\n" >&2
+    printf "  O dilo a mano:        MIRAG_IMAGEN=tuusuario/agente-backend ./publicar.sh\n" >&2
+    exit 1; }
+  # Los nombres de repositorio van en minusculas en todos los registros.
+  IMAGEN="$(printf '%s' "$usuario" | tr '[:upper:]' '[:lower:]')/agente-backend"
+  printf "\033[2m  (imagen deducida del login: %s)\033[0m\n" "$IMAGEN"
+fi
 PUBLICAR=1
 [ "${1:-}" = "--sin-publicar" ] && PUBLICAR=0
 
