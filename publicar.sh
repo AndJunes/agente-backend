@@ -73,10 +73,10 @@ ok "base $(docker images --format '{{.Size}}' "$IMAGEN:latest" | head -1) · ide
 # ── 5 · que la imagen construida arranque, ANTES de publicarla ───────────────────
 # Publicar algo que no arranca es peor que no publicar: el fallo aparece en el servidor.
 paso "Probando la imagen antes de publicarla"
-docker rm -f _publicar_prueba >/dev/null 2>&1 || true
-docker run -d --name _publicar_prueba -p 127.0.0.1:8099:8000 "$IMAGEN:$SHA" >/dev/null
-trap 'docker rm -f _publicar_prueba >/dev/null 2>&1 || true' EXIT
-docker exec _publicar_prueba sh -c 'test ! -f /app/.env' || rojo "la imagen lleva un .env"
+docker rm -f publicar-prueba >/dev/null 2>&1 || true
+docker run -d --name publicar-prueba -p 127.0.0.1:8099:8000 "$IMAGEN:$SHA" >/dev/null
+trap 'docker rm -f publicar-prueba >/dev/null 2>&1 || true' EXIT
+docker exec publicar-prueba sh -c 'test ! -f /app/.env' || rojo "la imagen lleva un .env"
 code=""
 for _ in $(seq 1 30); do
   code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8099/ || true)"
@@ -88,7 +88,7 @@ for ruta in /.env /server.py /trazas.jsonl /config.py; do
   c="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8099$ruta")"
   [ "$c" = "404" ] || rojo "$ruta devolvio $c, deberia ser 404"
 done
-docker rm -f _publicar_prueba >/dev/null
+docker rm -f publicar-prueba >/dev/null
 ok "arranca, sirve la pagina y no sirve nada que no deba"
 
 # ── 6 · publicar ─────────────────────────────────────────────────────────────────
