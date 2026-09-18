@@ -23,7 +23,7 @@ permissions:
 jobs:
   suite:
     name: Las 23 suites y los contratos de las demos
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04    # fijada: `ubuntu-latest` migra a Ubuntu 26 el 19/10/2026
     steps:
       - uses: actions/checkout@v7
 
@@ -69,8 +69,12 @@ jobs:
         run: |
           # Barato, y cubre el descuido mas caro: un .env commiteado por error.
           if git ls-files | grep -qxF ".env"; then echo "::error::.env esta versionado"; exit 1; fi
-          if git grep -nIE "sk-or-v1-[A-Za-z0-9]{20,}|\bS[A-Z2-7]{55}\b" -- . ; then
-            echo "::error::hay algo con forma de credencial en el arbol versionado"; exit 1
+          # -l y no -n: `git grep -n` imprime la LINEA encontrada, y este repo es
+          # publico. Un aviso que ecoa la credencial en un log publico filtra justo lo
+          # que existe para proteger. Se dicen los archivos, nunca el contenido.
+          if git grep -lIE "sk-or-v1-[A-Za-z0-9]{20,}|\bS[A-Z2-7]{55}\b" -- . ; then
+            echo "::error::hay algo con forma de credencial en los archivos de arriba"
+            exit 1
           fi
           echo "sin credenciales en el arbol"
 
@@ -79,7 +83,7 @@ jobs:
     # Solo si la suite paso: una imagen que no pasa sus propios tests no se publica.
     needs: suite
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04    # fijada: `ubuntu-latest` migra a Ubuntu 26 el 19/10/2026
     permissions:
       contents: read
       packages: write
