@@ -16,6 +16,7 @@ _RAIZ_REPO = _Path(__file__).resolve().parent.parent
 for _d in (_RAIZ_REPO, _RAIZ_REPO / "experimental", _RAIZ_REPO / "benchmarks"):
     _sys.path.insert(0, str(_d))
 import os
+import subprocess
 import sys
 
 import agent
@@ -289,6 +290,31 @@ def apagada_la_sintaxis_se_sigue_comprobando_sin_ejecutar():
     assert fallo and "b.py" in fallo, f"un error de sintaxis real deberia cazarse: {fallo!r}"
     assert "NO EJECUTADO" not in (fallo or ""), \
         "el motivo confunde 'no se ejecuto' con 'la sintaxis esta rota'"
+
+
+def ningun_import_de_produccion_enciende_la_ejecucion():
+    """Encender la ejecucion tiene que ser una decision, no un efecto de importar algo.
+
+    Este caso existe porque el fallo ocurrio: `demos.py` ponia la bandera en `on` al
+    importarse, y `server.py:426` hace `import dobles, demos` DENTRO del handler para
+    elegir el guion del modo offline. Resultado: la PRIMERA peticion del servidor
+    encendia la ejecucion de codigo generado en produccion, de forma permanente, sin que
+    nadie lo hubiera pedido y sin que se notara en ningun sitio.
+
+    No se comprueba leyendo el codigo sino en un proceso limpio, importando lo que
+    importa el servidor y preguntando por el impedimento despues.
+    """
+    guion = (
+        "import os, sys\n"
+        "os.environ.pop('MIRAG_EJECUCION', None)\n"
+        "import server, pipeline, dobles, demos, rapido, skills\n"
+        "print('APAGADA' if skills.impedimento_de_ejecucion() else 'ENCENDIDA')\n")
+    r = subprocess.run([sys.executable, "-c", guion], cwd=str(_RAIZ_REPO),
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr[-400:]
+    assert r.stdout.strip().endswith("APAGADA"), (
+        "importar los modulos de produccion dejo la ejecucion ENCENDIDA: "
+        "alguien puso la bandera como efecto de import\n" + r.stdout[-300:])
 
 
 if __name__ == "__main__":

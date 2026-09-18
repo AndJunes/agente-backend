@@ -23,17 +23,6 @@ COMO QUEDA
 import os
 import re
 
-# Las demos ENCIENDEN la ejecucion a proposito, y hay que decir por que para que nadie se
-# confunda: en produccion esta APAGADA (skills.impedimento_de_ejecucion), porque este
-# agente entrega el codigo y sus casos de test sin correrlos — de eso se encargara el
-# agente de QA. Lo que estas demos ensenan es la maquinaria de verificacion: que cuando
-# algo SI se ejecuta, el veredicto sale de lo observado y no de lo que diga el modelo.
-# Esa maquinaria sigue entera, apagada, y es la que heredara QA.
-#
-# Sin esto las cuatro demos saldrian GENERADO / no_ejecutado: honesto, pero no demuestra
-# nada, que es justo lo contrario de para lo que existen.
-os.environ.setdefault("MIRAG_EJECUCION", "on")
-
 import dobles
 
 # Cada demo: (clave, que demuestra, como se reconoce, guion).
@@ -226,6 +215,19 @@ def correr(clave, offline=None, guardar=False):
 
 
 if __name__ == "__main__":
+    # La ejecucion se enciende AQUI y no al importar, y la diferencia no es de estilo:
+    # `server.py` hace `import demos` DENTRO del handler para elegir el guion offline. Si
+    # esto viviera arriba, la primera peticion del servidor encenderia la ejecucion de
+    # codigo generado en produccion, de forma permanente y sin que nadie lo pidiera. Paso
+    # de verdad, y hay un caso en test_auditoria que lo vigila.
+    #
+    # Por que las demos SI la encienden: en produccion esta apagada porque el agente
+    # entrega el codigo y sus tests sin correrlos (eso sera del agente de QA). Lo que
+    # estas demos ensenan es la maquinaria de verificacion —que cuando algo SI se ejecuta,
+    # el veredicto sale de lo observado y no de lo que diga el modelo—, y esa maquinaria
+    # sigue entera. Sin encenderla, las cuatro demos saldrian GENERADO / no_ejecutado:
+    # honesto, pero sin demostrar nada, que es lo contrario de para lo que existen.
+    os.environ.setdefault("MIRAG_EJECUCION", "on")
     import sys
     if len(sys.argv) > 1:
         import agent

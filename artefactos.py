@@ -32,6 +32,10 @@ from typing import NamedTuple
 
 CARPETA = Path(__file__).resolve().parent / "artefactos"
 ID_VALIDO = re.compile(r"\A[0-9a-f]{24}\Z")
+# Tope del texto que viaja en el JSON. Por encima se entregan las rutas y se dice que
+# hay que bajar el ZIP: un proyecto generado normal ronda las decenas de KB, asi que esto
+# solo se toca cuando algo ha ido mal.
+TOPE_TEXTO = 2 * 1024 * 1024
 TTL = 3600                    # segundos que vive un artefacto
 MAXIMOS = 20                  # cuántos se guardan a la vez
 LIMITE_MEMORIA = 64 * 1024 * 1024
@@ -58,6 +62,48 @@ class Artefacto(NamedTuple):
     def estado(self):
         return self.certificado.estado if self.certificado is not None else "GENERADO"
 
+    def _archivos(self, man):
+        """Las huellas del manifiesto, y ademas el TEXTO de cada archivo.
+
+        El texto viaja aqui porque quien consume esto ya no es solo la pagina propia:
+        CodeZard tiene que PINTAR el codigo. Hasta ahora solo iban rutas y hashes, y el
+        contenido vivia unicamente dentro del ZIP — o sea que para enseñar un archivo
+        habia que bajarse el ZIP y descomprimirlo en el servidor de enfrente.
+
+        Dos guardas, y ninguna sobra:
+
+        1. `TOPE_TEXTO` en total. Pasado el tope se entregan las rutas SIN texto y se dice
+           por que. Mandar una respuesta de decenas de MB en silencio no es una entrega:
+           es un fallo que aparece mas tarde y en otro sitio.
+
+        2. La misma regex que `empaquetado.SECRETOS`. Esa ya impedia que un secreto
+           viajara dentro de un ZIP (empaquetado.py:234 tumba la inspeccion y el artefacto
+           deja de ser descargable), pero `para_la_pagina()` se emite IGUAL aunque el ZIP
+           no sea descargable. Sin esta guarda, meter el texto aqui habria abierto por la
+           API justo la puerta que el ZIP tenia cerrada. Si un archivo generado trae algo
+           con forma de clave, sale su ruta y no su contenido.
+        """
+        import empaquetado                      # aqui para no darle la vuelta al grafo
+        planos = self.proyecto.planos()
+        huellas = [{"ruta": h.ruta, "bytes": h.bytes, "lineas": h.lineas,
+                    "sha256": h.sha256} for h in (man.archivos if man else ())]
+        total = sum(h["bytes"] for h in huellas)
+        if total > TOPE_TEXTO:
+            for h in huellas:
+                h["texto"] = None
+                h["sin_texto"] = (f"el proyecto ocupa {total} bytes y el tope de la API son "
+                                  f"{TOPE_TEXTO}: descarga el ZIP")
+            return huellas
+        for h in huellas:
+            texto = planos.get(h["ruta"])
+            if texto is None:
+                h["texto"], h["sin_texto"] = None, "no esta en los planos del proyecto"
+            elif empaquetado.SECRETOS.search(texto.encode("utf-8", "replace")):
+                h["texto"], h["sin_texto"] = None, "contiene algo con forma de credencial"
+            else:
+                h["texto"] = texto
+        return huellas
+
     def para_la_pagina(self):
         """Lo que viaja al navegador. Sin una sola ruta del filesystem."""
         man = self.paquete.manifiesto if self.paquete else None
@@ -69,8 +115,7 @@ class Artefacto(NamedTuple):
             "estado": self.estado,
             "simulado": self.simulado,
             "por_que": cert.por_que if cert else "",
-            "archivos": [{"ruta": h.ruta, "bytes": h.bytes, "lineas": h.lineas,
-                          "sha256": h.sha256} for h in (man.archivos if man else ())],
+            "archivos": self._archivos(man),
             "totales": self.proyecto.totales,
             "verificacion": (man.verificacion if man else {}),
             "fases": [{"nombre": f.nombre, "estado": f.estado, "detalle": f.detalle}
