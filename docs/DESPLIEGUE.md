@@ -77,9 +77,67 @@ que solo descarga al desplegar.
 push a `main`. Esta escrito y sin estrenar; en cuanto se desbloquee la cuenta, funciona
 solo y `publicar.sh` pasa a ser el plan B.
 
-## En el servidor
+## En el servidor, paso a paso
 
-El servidor **no necesita el codigo fuente, ni Python, ni construir nada**: solo Docker.
+El servidor **no necesita el codigo fuente, ni Python, ni construir nada**: solo Docker y
+dos archivos.
+
+**1 · Docker**, si no lo tiene:
+
+```bash
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER && newgrp docker      # para no escribir sudo cada vez
+```
+
+**2 · Los dos archivos.** No hace falta clonar el repositorio:
+
+```bash
+mkdir -p ~/agente && cd ~/agente
+RAW=https://raw.githubusercontent.com/AndJunes/agente-backend/main
+curl -fsSL -O  "$RAW/docker-compose.prod.yml"
+curl -fsSL -o .env "$RAW/.env.servidor.example"
+```
+
+**3 · El `.env`.** Genera el token, no lo inventes; y pega tu clave de OpenRouter:
+
+```bash
+sed -i "s|^MIRAG_TOKEN=.*|MIRAG_TOKEN=$(python3 -c 'import secrets;print(secrets.token_urlsafe(32))')|" .env
+nano .env        # y pon OPENROUTER_API_KEY
+chmod 600 .env   # que solo lo lea tu usuario
+```
+
+**4 · Levantarlo:**
+
+```bash
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml logs -f    # Ctrl-C para salir
+```
+
+**5 · Comprobar que funciona.** Aqui viene lo que despista: **no hay puerto publicado**, asi
+que `curl localhost:8000` desde el servidor NO responde, y eso es exactamente lo correcto.
+Se comprueba desde dentro de la red, que es donde vive CodeZard:
+
+```bash
+docker run --rm --network codezard_interna curlimages/curl \
+  -s -o /dev/null -w "%{http_code}\n" http://mirag:8000/          # 200
+
+docker run --rm --network codezard_interna curlimages/curl \
+  -s -o /dev/null -w "%{http_code}\n" -X POST http://mirag:8000/chat \
+  -H "Content-Type: application/json" -d '{"pregunta":"hola"}'     # 401, sin token
+```
+
+**6 · CodeZard** se une a la misma red y ya le habla por su nombre, `http://mirag:8000`,
+mandando el `MIRAG_TOKEN` en la cabecera `X-Mirag-Token`.
+
+## Actualizar y volver atras
+
+```bash
+docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d
+```
+
+Para volver a una version anterior, `MIRAG_TAG=<sha>` en el `.env` y repetir. El sha lo
+imprime `./publicar.sh` al publicar.
 
 ```bash
 docker compose -f docker-compose.prod.yml pull
