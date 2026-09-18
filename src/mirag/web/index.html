@@ -1,0 +1,877 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<!-- Without this a phone renders the page at 980px and shows it in miniature. -->
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mirag</title>
+<link rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,400,0,0&display=block">
+<style>
+  body { background: #fff; font: 16px/1.5 system-ui, sans-serif; max-width: 760px; margin: 0 auto; padding: 24px 16px; color: #1a1a1a; }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  .sub { color: #666; margin: 0 0 20px; }
+  .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .lang { font-size: 13px; color: #555; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .lang select { font-size: 13px; padding: 3px 6px; border-radius: 6px; border: 1px solid #ccc; }
+
+  .ico { font-family: 'Material Symbols Rounded'; font-weight: normal; font-style: normal;
+         font-size: 18px; line-height: 1; letter-spacing: normal; text-transform: none;
+         display: inline-block; white-space: nowrap; direction: ltr; vertical-align: -3px;
+         -webkit-font-feature-settings: 'liga'; -webkit-font-smoothing: antialiased; }
+
+  .pieces { display: flex; gap: 8px; margin-bottom: 14px; }
+  .piece { flex: 1; border: 2px solid #e0e0e0; border-radius: 10px; padding: 10px; text-align: center; font-size: 13px; color: #888; }
+  .piece .ico { display: block; margin: 0 auto 4px; font-size: 22px; }
+  .piece.active { border-color: #7c3aed; background: #f5f0ff; color: #5b21b6; font-weight: 600; }
+  form { display: flex; gap: 8px; }
+  input[type=text] { flex: 1; padding: 10px 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 8px; }
+  button { padding: 10px 16px; font-size: 15px; border: 0; border-radius: 8px; background: #7c3aed; color: #fff; cursor: pointer; }
+  .modes { display: flex; gap: 16px; margin-bottom: 10px; font-size: 13px; color: #555; flex-wrap: wrap; }
+  .modes label { cursor: pointer; }
+  .tag-exp { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+             background: #fffbeb; color: #b45309; padding: 1px 6px; border-radius: 4px; vertical-align: 1px; }
+  .notice { background: #fff8e1; border-left: 3px solid #f0b429; padding: 8px 12px; font-size: 13px;
+            border-radius: 0 6px 6px 0; margin-top: 12px; }
+  .demos { margin: 10px 0 24px; }
+  .demos button { background: #f0f0f0; color: #444; font-size: 13px; margin-right: 6px; margin-top: 6px; padding: 6px 10px; }
+  .demos button b { display: block; font-size: 12.5px; margin-bottom: 1px; }
+
+  .legend { margin: 0 0 20px; font-size: 13px; }
+  .legend ul { list-style: none; padding: 10px 0 0; margin: 0; }
+  .legend li { margin: 7px 0; color: #555; }
+  .legend .chip { margin-right: 8px; }
+
+  .card { border-left: 3px solid #ddd; padding: 2px 0 2px 14px; margin: 16px 0; }
+  .head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .head b { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: #666; }
+  .head > .ico { color: #999; }
+  .question { border-color: #999; }
+  .phase { border-color: #7c3aed; }
+  .phase .head b, .phase .head > .ico { color: #7c3aed; }
+  .final { border-color: #334155; }
+  .final .head b, .final .head > .ico { color: #334155; }
+  .card[data-state=running]      { border-color: #7c3aed; }
+  .card[data-state=completed]    { border-color: #16a34a; }
+  .card[data-state=warning]      { border-color: #f0b429; }
+  .card[data-state=error]        { border-color: #dc2626; }
+  .card[data-state=unverified]   { border-color: #9ca3af; }
+  .card[data-state=skipped]      { border-color: #e4e4e7; }
+  .card[data-state=skipped] .head b { color: #a1a1aa; }
+  .card[data-state=fallback]     { border-color: #3b82f6; }
+  .card[data-state=insufficient] { border-color: #f0b429; }
+
+  .chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600;
+          letter-spacing: .03em; text-transform: uppercase; padding: 2px 8px 2px 6px; border-radius: 999px; }
+  .chip .ico { font-size: 14px; vertical-align: -2px; }
+  .chip-running      { background: #f5f0ff; color: #6d28d9; }
+  .chip-running .ico { animation: spin 1.4s linear infinite; }
+  .chip-completed    { background: #f0fdf4; color: #15803d; }
+  .chip-warning      { background: #fffbeb; color: #b45309; }
+  .chip-error        { background: #fef2f2; color: #b91c1c; }
+  .chip-onchain      { background: #eff6ff; color: #1d4ed8; }
+  .chip-not_onchain, .chip-unverified { background: #f4f4f5; color: #52525b; }
+  .chip-skipped, .chip-disabled { background: #fafafa; color: #71717a; }
+  .chip-fallback     { background: #eff6ff; color: #1d4ed8; }
+  .chip-insufficient { background: #fffbeb; color: #b45309; }
+  .chip-simulated    { background: #f5f3ff; color: #6d28d9; }
+  .chip-no_model     { background: #f4f4f5; color: #3f3f46; }
+  .chip-experimental { background: #fff7ed; color: #c2410c; }
+  @keyframes spin { to { transform: rotate(360deg) } }
+
+  .source { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: #777; }
+  .source .ico { font-size: 14px; vertical-align: -2px; }
+  .s-execution { color: #15803d; }
+  .s-model     { color: #7c3aed; }
+  .body { margin-top: 7px; font-size: 14px; }
+  .aside { display: block; margin-top: 4px; color: #777; font-size: 13px; }
+  .ms { color: #a1a1aa; font-size: 11px; font-variant-numeric: tabular-nums; }
+  .off { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .off span { font-size: 11px; color: #71717a; background: #fafafa; border: 1px solid #ececef;
+              border-radius: 5px; padding: 1px 6px; cursor: help; }
+  .markers { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+  .marker { font-size: 11px; padding: 2px 7px; border-radius: 5px; font-family: ui-monospace, monospace; }
+  .marker.pass { background: #f0fdf4; color: #15803d; }
+  .marker.fail { background: #fef2f2; color: #b91c1c; }
+  .reason { font-family: ui-monospace, monospace; font-size: 13px; background: #fef2f2; color: #991b1b;
+            padding: 6px 10px; border-radius: 6px; margin-top: 6px; overflow-x: auto; white-space: pre-wrap; }
+  .reason.grey { background: #f4f4f5; color: #3f3f46; }
+  .note { color: #888; font-size: 13px; font-style: italic; }
+  .live { color: #7c3aed; font-variant-numeric: tabular-nums; }
+  .live::after { content: ' ●'; animation: beat 1.2s infinite; }
+  @keyframes beat { 0%, 100% { opacity: .25 } 50% { opacity: 1 } }
+  .cost { color: #666; font-size: 12px; margin-top: 18px; padding-top: 10px; border-top: 1px solid #eee; }
+  .cost-sim { color: #6d28d9; }
+  details { margin-top: 8px; }
+  summary { color: #888; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+  summary::-webkit-details-marker { display: none; }
+  summary .ico { font-size: 16px; transition: transform .15s; }
+  details[open] > summary .ico { transform: rotate(180deg); }
+  details > .md, details > .output { border-radius: 6px; padding: 4px 12px; font-size: 13px; max-height: 340px; overflow: auto; margin: 6px 0 0; }
+  details > .md { background: #faf8ff; }
+  .output { background: #1e1e2e; color: #cdd6f4; padding: 12px 14px; border-radius: 8px;
+            font-family: ui-monospace, monospace; font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+  .args { font-size: 12.5px; color: #555; margin: 6px 0 0; }
+  code { background: #f4f4f4; padding: 1px 5px; border-radius: 4px; font-size: 14px; font-family: ui-monospace, monospace; }
+
+  .block { position: relative; margin: 12px 0; }
+  .block pre { background: #1e1e2e; color: #cdd6f4; border-radius: 0 0 8px 8px; padding: 14px 16px; overflow-x: auto;
+               font-size: 13px; line-height: 1.55; margin: 0; font-family: ui-monospace, monospace; }
+  .block pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+  .bar { display: flex; justify-content: space-between; align-items: center; background: #313244; color: #a6adc8;
+         border-radius: 8px 8px 0 0; padding: 5px 12px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+  .bar button { background: #45475a; color: #cdd6f4; font-size: 11px; padding: 3px 9px; border-radius: 5px; text-transform: none; }
+  .tok-com { color: #6c7086; font-style: italic; }
+  .tok-str { color: #a6e3a1; }
+  .tok-kw  { color: #cba6f7; }
+  .tok-num { color: #fab387; }
+
+  .md h3 { font-size: 15px; margin: 18px 0 6px; color: #1a1a1a; }
+  .md ul { margin: 8px 0; padding-left: 22px; }
+  .md li { margin: 3px 0; }
+  .md table, table.tl { border-collapse: collapse; margin: 12px 0; font-size: 13px; display: block; overflow-x: auto; max-width: 100%; }
+  .md th, .md td { border: 1px solid #e2e2e2; padding: 5px 9px; text-align: left; vertical-align: top; }
+  .md th { background: #f7f7f9; font-weight: 600; }
+  .md blockquote { border-left: 3px solid #d8d2ee; margin: 10px 0; padding: 2px 0 2px 12px; color: #555; font-size: 14px; }
+  .md hr { border: 0; border-top: 1px solid #eee; margin: 16px 0; }
+  .ico-ok { color: #16a34a; } .ico-bad { color: #dc2626; } .ico-sim { color: #f0b429; }
+  .ico-doubt { color: #9ca3af; } .ico-warn { color: #b45309; } .ico-cost { color: #6b7280; }
+
+  .layers { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; margin-top: 10px; }
+  .layer { border: 1px solid #ececef; border-radius: 8px; padding: 10px 11px; background: #fff; }
+  .layer-head { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: .04em; }
+  .layer-head .ico { font-size: 16px; }
+  .layer-n { margin-left: auto; background: #f4f4f5; border-radius: 9px; padding: 0 7px; font-size: 11px; }
+  .layer-note { font-size: 12px; color: #71717a; margin: 6px 0 8px; line-height: 1.45; }
+  .layer-empty { font-size: 12px; color: #a1a1aa; font-style: italic; margin: 4px 0; }
+  .layer-sub { font-size: 12.5px; font-weight: 600; margin: 6px 0; }
+  .layer b.big { font-size: 20px; display: block; margin: 2px 0; }
+  .layer .h, .tree .h { color: #71717a; font-size: 11px; line-height: 1.4; }
+  .l-claim { border-left: 3px solid #a78bfa; } .l-claim .layer-head { color: #6d28d9; }
+  .l-obs   { border-left: 3px solid #60a5fa; } .l-obs   .layer-head { color: #1d4ed8; }
+  .l-ver   { border-left: 3px solid #4ade80; } .l-ver   .layer-head { color: #15803d; }
+  .l-nover { border-left: 3px solid #d4d4d8; } .l-nover .layer-head { color: #52525b; }
+  ul.ev { list-style: none; margin: 0; padding: 0; }
+  .ev-row { padding: 6px 0; border-top: 1px solid #f4f4f5; }
+  .ev-row:first-child { border-top: 0; }
+  .ev-prop { font-size: 11.5px; display: block; word-break: break-word; }
+  .ev-foot { display: flex; gap: 6px; align-items: baseline; margin-top: 3px; flex-wrap: wrap; }
+  .ev-test { font-family: ui-monospace, monospace; font-size: 10px; background: #f4f4f5; border-radius: 4px; padding: 0 5px; color: #52525b; }
+  .ev-risk { font-size: 11px; color: #a1a1aa; }
+  table.tl td { padding: 3px 6px 3px 0; border-top: 1px solid #f4f4f5; vertical-align: top; }
+  .t-t, .t-ms { font-family: ui-monospace, monospace; color: #a1a1aa; white-space: nowrap; }
+  .t-ms { text-align: right; }
+  .t-stage { font-weight: 600; white-space: nowrap; }
+  .t-sum { color: #52525b; }
+  tr.t-skipped { opacity: .5; }
+  tr.t-error .t-stage { color: #b91c1c; }
+  .tree { font: 12px/1.75 ui-monospace, monospace; margin-top: 6px; overflow-x: auto; }
+  .tree ul { list-style: none; margin: 0; padding-left: 15px; border-left: 1px solid #ececef; }
+  .tree > ul { padding-left: 2px; border-left: 0; }
+  .tree .dir { color: #6d28d9; font-weight: 600; }
+
+  .section { border: 2px solid #16a34a; border-radius: 12px; margin: 22px 0; overflow: hidden; }
+  .section.simulated { border-color: #f0b429; }
+  .section.red { border-color: #dc2626; }
+  .section.neutral { border-color: #9ca3af; }
+  .section > header { background: #f0fdf4; padding: 12px 16px; border-bottom: 1px solid #dcfce7; }
+  .section.simulated > header { background: #fffbeb; border-bottom-color: #fde68a; }
+  .section.red > header { background: #fef2f2; border-bottom-color: #fecaca; }
+  .section.neutral > header { background: #fafafa; border-bottom-color: #e5e5e5; }
+  .section h2 { margin: 0 0 3px; font-size: 15px; display: flex; align-items: center; gap: 7px; }
+  .section .meta { font-size: 12px; color: #555; }
+  .section > .layers, .section > details { padding: 0 14px; }
+  .tabs { display: flex; gap: 2px; background: #313244; padding: 6px 6px 0; overflow-x: auto; }
+  .tabs button { background: transparent; color: #a6adc8; border-radius: 6px 6px 0 0; font-size: 12px; padding: 7px 13px;
+                 white-space: nowrap; font-family: ui-monospace, monospace; }
+  .tabs button.live-tab { background: #1e1e2e; color: #cdd6f4; font-weight: 600; }
+  .section .block { margin: 0; }
+  .section .block pre { border-radius: 0; max-height: 440px; }
+  .actions { display: flex; gap: 8px; padding: 10px 14px; background: #fafafa; border-top: 1px solid #eee; flex-wrap: wrap; align-items: center; }
+  .actions button { background: #16a34a; font-size: 13px; padding: 7px 13px; display: inline-flex; align-items: center; gap: 5px; }
+  .actions button.grey { background: #e8e8ea; color: #333; }
+  .actions .path { margin-left: auto; font-size: 11px; color: #888; font-family: ui-monospace, monospace; }
+  a.download { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; background: #16a34a; color: #fff;
+               border-radius: 7px; padding: 9px 14px; font-size: 13px; font-weight: 600; }
+  a.download .path { font-weight: 400; font-size: 11px; opacity: .85; font-family: ui-monospace, monospace; }
+  @media (max-width: 560px) {
+    body { padding: 16px 12px; }
+    .layers { grid-template-columns: 1fr; }
+    .t-sum { display: none; }
+    .top { flex-direction: column; }
+  }
+</style>
+
+<div class="top">
+  <div>
+    <h1 data-i18n="page.heading">Mirag</h1>
+    <p class="sub" data-i18n-html="page.subtitle"></p>
+  </div>
+  <label class="lang"><span class="ico">translate</span><span data-i18n="language.label">Language</span>
+    <select id="lang" onchange="switchLocale(this.value)">
+      <option value="en">English</option>
+      <option value="es">Español</option>
+    </select>
+  </label>
+</div>
+
+<div class="pieces">
+  <div class="piece" id="p-model"><span class="ico">psychology</span><span data-i18n="pieces.model_title"></span><br><span data-i18n="pieces.model_text"></span></div>
+  <div class="piece" id="p-tools"><span class="ico">handyman</span><span data-i18n="pieces.tools_title"></span><br><span data-i18n="pieces.tools_text"></span></div>
+  <div class="piece" id="p-docs"><span class="ico">menu_book</span><span data-i18n="pieces.docs_title"></span><br><span data-i18n="pieces.docs_text"></span></div>
+</div>
+
+<details class="legend">
+  <summary><span class="ico">expand_more</span><span data-i18n="legend.summary"></span></summary>
+  <ul id="legend"></ul>
+</details>
+
+<div class="modes" role="radiogroup">
+  <label><input type="radio" name="mode" value="pipeline" checked> <b data-i18n="modes.pipeline.name"></b>
+    — <span data-i18n="modes.pipeline.description"></span></label>
+  <label><input type="radio" name="mode" value="architect"> <b data-i18n="modes.architect.name"></b>
+    <span class="tag-exp" data-i18n="modes.experimental"></span> — <span data-i18n="modes.architect.description"></span></label>
+</div>
+
+<form onsubmit="ask(event)">
+  <input type="text" id="box" autofocus data-i18n-placeholder="form.placeholder" data-i18n-aria="form.question_label">
+  <button data-i18n="form.ask">Ask</button>
+</form>
+
+<div class="demos" id="demos" data-i18n-aria="demos.label"></div>
+<div id="out"></div>
+
+<script>
+// ── i18n: every visible string comes from /api/v1/i18n/<locale> ──────────────────
+let LOCALE = 'en';
+let MSG = {};
+const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+
+function lookup(key) {
+  return key.split('.').reduce((node, part) => (node && typeof node === 'object') ? node[part] : undefined, MSG);
+}
+// plain text, for textContent and attributes
+function t(key, params = {}) {
+  const value = lookup(key);
+  const text = typeof value === 'string' ? value : key;
+  return text.replace(/\{(\w+)\}/g, (m, name) => name in params ? String(params[name]) : m);
+}
+// escaped HTML with **bold**, *italic* and `code` from the catalog
+function th(key, params = {}) {
+  const safe = {};
+  for (const [k, v] of Object.entries(params)) safe[k] = escapeHtml(v);
+  const value = lookup(key);
+  const html = escapeHtml(typeof value === 'string' ? value : key)
+    .replace(/\{(\w+)\}/g, (m, name) => name in safe ? safe[name] : m);
+  return inlineMarkdown(html);
+}
+function inlineMarkdown(html) {
+  return html.replace(/`([^`]+)`/g, '<code>$1</code>')
+             .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+             .replace(/(^|[\s(])\*([^*]+)\*/g, '$1<i>$2</i>');
+}
+const plural = (key, count, params = {}) => th(`${key}.${count === 1 ? 'one' : 'other'}`, {count: fmt(count), ...params});
+const fmt = (n) => Number(n).toLocaleString(LOCALE);
+
+function storeLocale(locale) { try { localStorage.setItem('mirag.locale', locale); } catch (e) { /* private mode */ } }
+function storedLocale() { try { return localStorage.getItem('mirag.locale'); } catch (e) { return null; } }
+
+function applyStatic() {
+  document.documentElement.lang = LOCALE;
+  document.title = t('page.title');
+  document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-html]').forEach(el => { el.innerHTML = th(el.dataset.i18nHtml); });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => { el.placeholder = t(el.dataset.i18nPlaceholder); });
+  document.querySelectorAll('[data-i18n-aria]').forEach(el => { el.setAttribute('aria-label', t(el.dataset.i18nAria)); });
+  const select = document.getElementById('lang');
+  select.value = LOCALE;
+  [...select.options].forEach(o => { o.textContent = t(`language.names.${o.value}`); });
+  document.getElementById('legend').innerHTML =
+    ['running', 'completed', 'warning', 'error', 'unverified', 'simulated', 'no_model']
+      .map(s => `<li>${chip(s)} ${th(`legend.${s}`)}</li>`).join('');
+}
+
+async function loadLocale(locale) {
+  const response = await fetch(`/api/v1/i18n/${encodeURIComponent(locale)}`);
+  if (!response.ok) throw new Error(`i18n ${response.status}`);
+  const payload = await response.json();
+  LOCALE = payload.locale;
+  MSG = payload.messages;
+  storeLocale(LOCALE);
+  applyStatic();
+  await loadDemos();
+}
+
+async function switchLocale(locale) {
+  try { await loadLocale(locale); } catch (e) { console.error(e); }
+}
+
+async function loadDemos() {
+  const box = document.getElementById('demos');
+  try {
+    const response = await fetch(`/api/v1/demos?locale=${encodeURIComponent(LOCALE)}`);
+    const payload = await response.json();
+    box.innerHTML = payload.demos.map((d, i) =>
+      `<button type="button" data-demo="${i}" title="${escapeHtml(d.demonstrates)}"><b>${escapeHtml(d.title)}</b>${th(`demos.hints.${d.key}`)}</button>`).join('');
+    box.querySelectorAll('button').forEach(b => {
+      b.onclick = () => example(payload.demos[Number(b.dataset.demo)].question);
+    });
+  } catch (e) {
+    box.innerHTML = `<p class="note">${th('demos.unavailable')}</p>`;
+  }
+}
+
+// ── states: what is drawn ALWAYS comes from a real event, never from an assumption ──
+const STATES = {
+  running: 'sync', completed: 'check_circle', warning: 'warning', error: 'cancel',
+  unverified: 'help', skipped: 'remove', fallback: 'alt_route', insufficient: 'search_off',
+  // the offline lock has TWO states: a prepared demo answers what you asked; 'no model' answers nothing
+  simulated: 'science', no_model: 'cloud_off', experimental: 'construction',
+  // and the chain has two as well: the contract confirming the link is not Mirag claiming it
+  onchain: 'link', not_onchain: 'link_off', disabled: 'toggle_off',
+};
+const SOURCES = {execution: 'fact_check', model: 'psychology', corpus: 'menu_book'};
+const chip = (s) => STATES[s]
+  ? `<span class="chip chip-${s}"><span class="ico">${STATES[s]}</span>${escapeHtml(t(`chips.${s}`))}</span>` : '';
+const badge = (s) => SOURCES[s]
+  ? `<span class="source s-${s}"><span class="ico">${SOURCES[s]}</span>${escapeHtml(t(`sources.${s}`))}</span>` : '';
+
+// ── minimal code colouring, in ONE pass so nothing is processed twice ──
+const KEYWORDS = /\b(const|let|var|function|async|await|return|if|else|for|while|class|new|try|catch|throw|import|from|export|def|self|None|True|False|null|undefined|true|false|require|module|exports|SELECT|FROM|WHERE|INSERT|UPDATE|DELETE|JOIN|BEGIN|COMMIT)\b/;
+const TOKENS = new RegExp('(\\/\\/[^\\n]*|#[^\\n]*|--[^\\n]*)' + '|(\'[^\'\\n]*\'|"[^"\\n]*"|`[^`]*`)'
+  + '|' + KEYWORDS.source + '|\\b(\\d+(?:\\.\\d+)?)\\b', 'g');
+const colorize = (code) => code.replace(TOKENS, (m, com, str, kw) =>
+  com ? `<span class="tok-com">${m}</span>` : str ? `<span class="tok-str">${m}</span>`
+  : kw ? `<span class="tok-kw">${m}</span>` : `<span class="tok-num">${m}</span>`);
+
+// the emojis the server sends are drawn as icons
+const EMOJIS = {'⚠️': ['warning', 'warn'], '✅': ['check_circle', 'ok'], '❌': ['cancel', 'bad'], '🟡': ['science', 'sim'],
+                '❔': ['help', 'doubt'], '⛔': ['block', 'bad'], '⚠': ['warning', 'warn'], '○': ['radio_button_unchecked', 'doubt']};
+const EMOJI_RE = new RegExp(Object.keys(EMOJIS).sort((a, b) => b.length - a.length).join('|'), 'g');
+const iconize = (s) => s.replace(EMOJI_RE, m => `<span class="ico ico-${EMOJIS[m][1]}">${EMOJIS[m][0]}</span>`);
+
+function copyCode(button) {
+  const code = button.closest('.block').querySelector('code').textContent;
+  navigator.clipboard.writeText(code).then(() => {
+    button.textContent = t('code.copied');
+    setTimeout(() => { button.textContent = t('code.copy'); }, 1400);
+  });
+}
+
+// ── markdown -> html, just enough to read what the server sends ──
+function markdown(md) {
+  const blocks = [], inline = [];
+  let s = escapeHtml(String(md ?? ''));
+  s = s.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+    blocks.push(`<div class="block"><div class="bar"><span>${lang || escapeHtml(t('code.label'))}</span>
+      <button type="button" onclick="copyCode(this)">${escapeHtml(t('code.copy'))}</button></div>
+      <pre><code>${colorize(code.replace(/\n$/, ''))}</code></pre></div>`);
+    return `\u0000B${blocks.length - 1}\u0000`;
+  });
+  s = s.replace(/`([^`\n]+)`/g, (_, c) => { inline.push(`<code>${c}</code>`); return `\u0000C${inline.length - 1}\u0000`; });
+  s = s.replace(/\\n/g, '\n');
+  s = s.replace(/(?:^\|.*\|[ \t]*\n?)+/gm, (table) => {
+    const rows = table.trim().split('\n').filter(r => !/^\|[\s|:-]+\|$/.test(r.trim()))
+      .map(r => r.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim()));
+    if (rows.length < 2) return table;
+    return '<table><thead><tr>' + rows[0].map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>'
+      + rows.slice(1).map(r => '<tr>' + r.map(c => `<td>${c}</td>`).join('') + '</tr>').join('') + '</tbody></table>\n';
+  });
+  s = s.replace(/^#{1,6}\s*(.+)$/gm, (_, x) => `<h3>${x}</h3>`)
+       .replace(/^\s*[-*]{3,}\s*$/gm, '<hr>')
+       .replace(/^&gt;\s?(.*)$/gm, '<blockquote>$1</blockquote>')
+       .replace(/<\/blockquote>\n<blockquote>/g, '<br>')
+       .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
+       .replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<i>$2</i>')
+       .replace(/^\s*[-*+]\s+(.+)$/gm, '<li>$1</li>')
+       .replace(/^\s*\d+\.\s+(.+)$/gm, '<li>$1</li>')
+       .replace(/(<li>[\s\S]*?<\/li>)(?!\n*<li>)/g, '<ul>$1</ul>')
+       .replace(/<\/li>\n<li>/g, '</li><li>');
+  s = s.split(/\n{2,}/).map(p => {
+    const x = p.trim();
+    if (!x) return '';
+    return /^(<(?:h3|ul|table|hr|blockquote|div)|\u0000B)/.test(x) ? x : `<p>${x.replace(/\n/g, '<br>')}</p>`;
+  }).join('\n');
+  return iconize(s).replace(/\u0000C(\d+)\u0000/g, (_, i) => inline[i]).replace(/\u0000B(\d+)\u0000/g, (_, i) => blocks[i]);
+}
+
+// ── one card shape for every step ──
+function card({kind = '', icon = '', title = '', tool = '', state = '', source = '', summary = '', details = ''}) {
+  return `<div class="card ${kind}" ${state ? `data-state="${state}"` : ''}>
+    <div class="head">${icon ? `<span class="ico">${icon}</span>` : ''}<b>${escapeHtml(title)}</b>
+      ${tool ? `<code>${escapeHtml(tool)}</code>` : ''}${chip(state)}${badge(source)}</div>
+    ${summary ? `<div class="body">${summary}</div>` : ''}
+    ${details ? `<details><summary><span class="ico">expand_more</span>${escapeHtml(t('cards.details'))}</summary>${details}</details>` : ''}
+  </div>`;
+}
+
+const STEP_ICONS = {
+  offline_lock: 'lock', project_state: 'quickreply', retrieval_plan: 'checklist', filter: 'filter_alt',
+  bm25: 'search', vector: 'scatter_plot', rrf: 'merge', reranker: 'sort', symbols: 'code', graph: 'hub',
+  sufficiency: 'rule', context: 'article', model: 'psychology', delivery: 'edit_note', verification: 'play_circle',
+  verification_after_repair: 'play_circle', repair: 'build', evidence: 'fact_check', anti_patterns: 'report',
+  persistence: 'save', specification: 'description', plan: 'account_tree', project: 'account_tree',
+  structure: 'folder', syntax: 'spellcheck', imports: 'link', execution: 'play_circle', tests: 'science',
+  tests_after_repair: 'science', documented_command: 'terminal', crud: 'api', packaging: 'inventory_2', artifact: 'inventory_2',
+};
+function stepLabel(name) {
+  const [base, ...rest] = String(name || '').split(':');
+  const suffix = rest.join(':');
+  const label = t(`steps.${base}`);
+  if (!suffix) return label;
+  const suffixLabel = lookup(`suffixes.${suffix}`);
+  return `${label} · ${typeof suffixLabel === 'string' ? suffixLabel : suffix}`;
+}
+const STEP_TO_CHIP = {executed: 'completed', skipped: 'skipped', fallback: 'fallback', error: 'error',
+                      warning: 'warning', simulated: 'simulated', no_model: 'no_model'};
+
+function pipelineStep(ev) {
+  const base = String(ev.name || '').split(':')[0];
+  // sufficiency has its own chip: it is not a failure, it is "the corpus does not cover this"
+  const state = (base === 'sufficiency' && ev.status === 'fallback') ? 'insufficient' : (STEP_TO_CHIP[ev.status] || '');
+  let details = '';
+  if (ev.detail !== null && ev.detail !== undefined && ev.status !== 'skipped') {
+    const text = typeof ev.detail === 'string' ? ev.detail : JSON.stringify(ev.detail, null, 1);
+    if (text && text !== '{}' && text !== '[]') details = `<div class="output">${escapeHtml(text.slice(0, 4000))}</div>`;
+  }
+  const ms = ev.ms > 1 ? ` <span class="ms">· ${escapeHtml(t('units.ms', {n: fmt(ev.ms)}))}</span>` : '';
+  return {icon: STEP_ICONS[base] || 'bolt', title: stepLabel(ev.name), state, source: ev.source,
+          summary: `${escapeHtml(ev.summary)}${ms}`, details};
+}
+
+// ── retrieval in ONE card: three indices by five stages would be fifteen cards of internals ──
+const RETRIEVAL_STAGE = /^(filter|bm25|vector|rrf|reranker):/;
+function foldRetrieval(stages, closing) {
+  const used = [], off = [];
+  for (const name of ['bm25', 'vector', 'rrf', 'reranker']) {
+    const own = stages.filter(e => e.name.startsWith(name + ':'));
+    if (own.length) (own.some(e => e.status === 'executed') ? used : off).push(name);
+  }
+  const ids = (closing && closing.detail && closing.detail.ids) || [];
+  const line = [];
+  if (ids.length) line.push(plural('retrieval.chunks', ids.length));
+  if (closing && closing.summary) line.push(escapeHtml(closing.summary));
+  if (used.length) line.push(escapeHtml(used.map(stepLabel).join(' → ')));
+  // a disabled stage is not a hole or an error: it is information, and it carries its reason
+  const disabled = off.map(name => {
+    const e = stages.find(x => x.name.startsWith(name + ':'));
+    return `<span title="${escapeHtml(e ? e.summary : t('retrieval.no_reason'))}">${escapeHtml(stepLabel(name))}: ${escapeHtml(t('chips.disabled'))}</span>`;
+  }).join('');
+  const detail = stages.map(e => `${e.status === 'executed' ? '·' : '○'} ${e.name.padEnd(24)} ${e.summary}`).join('\n');
+  return {icon: 'search', title: t('steps.retrieval'), state: 'completed', source: 'corpus',
+          summary: line.join(' · ') + (disabled ? `<div class="off">${disabled}</div>` : ''),
+          details: `<div class="output">${escapeHtml(detail)}</div>`};
+}
+
+const GENERATION_STAGE = /^generation:/;
+function foldGeneration(stages, closing) {
+  const groups = stages.map(e => `${stepLabel(e.name)} (${e.summary})`).join(' · ');
+  const tree = ((closing && closing.detail && closing.detail.tree) || []).map(r => `  ${r}`).join('\n');
+  return {icon: 'account_tree', title: t('generation.title'), state: 'completed', source: 'model',
+          summary: escapeHtml(closing ? closing.summary : groups),
+          details: `<div class="output">${escapeHtml(groups + '\n\n' + tree)}</div>`};
+}
+
+// ── a tool event (architect mode): what to SHOW and with which state ──
+// Rule: the state comes from the real output. If nothing ran, there is no green.
+function analyzeTool(ev) {
+  const name = String(ev.name || 'tool');
+  const result = String(ev.result ?? '');
+  const args = ev.args || {};
+  const first = result.split('\n').find(l => l.trim()) || t('tools.run.no_output');
+  if (name === 'run_code') {
+    const markers = [...result.matchAll(/TEST:([\w.\- ]+):(PASS|FAIL)/g)];
+    const passed = markers.filter(m => m[2] === 'PASS').length;
+    const failed = markers.length - passed;
+    const list = markers.length ? `<div class="markers">${markers.map(m =>
+      `<span class="marker ${m[2].toLowerCase()}">${escapeHtml(m[1])}</span>`).join('')}</div>` : '';
+    const base = {icon: 'play_circle', title: t('tools.run.title'), tool: name, source: 'execution',
+                  details: `<div class="output">${escapeHtml(result.slice(0, 6000))}</div>`};
+    if (/^NOT EXECUTED/.test(result))
+      return {...base, icon: 'block', source: '', state: 'unverified', title: t('tools.run.not_executed_title'),
+              summary: `<div class="reason grey">${escapeHtml(first)}</div><span class="aside">${th('tools.run.not_executed_note')}</span>`};
+    if (/^FAILED/.test(result) && !/^FAILED: \d+ of \d+ markers/.test(result))
+      return {...base, state: 'error', summary: (markers.length
+        ? th('tools.run.failed_markers', {passed, total: markers.length, failed}) : th('tools.run.failed_exit'))
+        + `<div class="reason">${escapeHtml(first)}</div>` + list};
+    if (failed)
+      return {...base, state: 'error', summary: th('tools.run.markers_failed', {failed, total: markers.length})
+        + `<span class="aside">${th('tools.run.markers_failed_note')}</span>` + list};
+    if (markers.length)
+      return {...base, state: 'completed', summary: th('tools.run.passed', {passed, total: markers.length})
+        + `<span class="aside">${plural('tools.run.proven', passed)}</span>` + list};
+    return {...base, state: 'warning', summary: th('tools.run.no_markers') + `<div class="reason grey">${escapeHtml(first)}</div>`};
+  }
+  if (/^search_|^related_boxes$/.test(name)) {
+    const topic = args.query || args.topic || args.box || '';
+    const empty = !result.trim() || /^(No results|Sin resultados)/.test(first);
+    return {icon: 'search', title: t('tools.search.title'), tool: name, source: 'corpus', state: empty ? 'warning' : '',
+            summary: `${topic ? th('tools.search.query', {query: topic}) + ' · ' : ''}${empty ? th('tools.search.empty')
+              : th('tools.search.tokens', {tokens: fmt(Math.floor(result.length / 4))})}<span class="aside">${escapeHtml(first.slice(0, 150))}…</span>`,
+            details: `<div class="md">${markdown(result)}</div>`};
+  }
+  const failedTool = /^ERROR/.test(result);
+  return {icon: 'bolt', title: t('tools.other.title'), tool: name, state: failedTool ? 'error' : '', source: '',
+          summary: failedTool ? `<div class="reason">${escapeHtml(first)}</div>` : th('tools.other.returned', {value: first.slice(0, 120)}),
+          details: `<p class="args"><b>${escapeHtml(t('tools.other.arguments'))}</b> ${escapeHtml(JSON.stringify(args))}</p><div class="md">${markdown(result)}</div>`};
+}
+
+// ── the evidence panel: four layers that never share a place ──
+function evidencePanel(ev) {
+  if (!ev || (!(ev.claim || []).length && !ev.observed)) return '';
+  const row = (x) => `<li class="ev-row"><code class="ev-prop">${escapeHtml(x.property || '')}</code>
+    <div class="ev-foot">${x.test_id ? `<span class="ev-test">${escapeHtml(x.test_id)}</span>` : ''}
+    <span class="ev-risk">${escapeHtml(x.risk || '')}</span></div></li>`;
+  const list = (rows) => rows && rows.length ? `<ul class="ev">${rows.map(row).join('')}</ul>` : '';
+  const empty = (key) => `<p class="layer-empty">${th(key)}</p>`;
+  const o = ev.observed;
+  let observed = empty('evidence.observed.nothing');
+  if (o) {
+    const markers = o.markers ? Object.entries(o.markers) : [];
+    observed = `<p class="layer-sub">${escapeHtml(o.header || t(`execution_status.${o.status}`))}</p>`
+      + (markers.length ? `<div class="markers">${markers.map(([k, v]) =>
+          `<span class="marker ${v.toLowerCase()}">${escapeHtml(k)} ${escapeHtml(v)}</span>`).join('')}</div>`
+          : empty('evidence.observed.no_markers'))
+      + (o.truncated ? `<p class="layer-note">${th('evidence.observed.truncated')}</p>` : '');
+  }
+  const uncovered = (ev.uncovered || []).length ? `<p class="layer-note">${th('evidence.claim.uncovered')}</p><ul>${
+    ev.uncovered.map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul>` : '';
+  const layers = [
+    `<div class="layer l-claim"><div class="layer-head"><span class="ico">psychology</span> ${escapeHtml(t('evidence.claim.title'))}
+      <span class="layer-n">${ev.claim.length}</span></div><p class="layer-note">${th('evidence.claim.note')}</p>
+      ${list(ev.claim) || empty('evidence.claim.empty')}${uncovered}</div>`,
+    `<div class="layer l-obs"><div class="layer-head"><span class="ico">fact_check</span> ${escapeHtml(t('evidence.observed.title'))}</div>
+      <p class="layer-note">${th('evidence.observed.note')}</p>${observed}</div>`,
+    `<div class="layer l-ver"><div class="layer-head"><span class="ico">verified</span> ${escapeHtml(t('evidence.verified.title'))}
+      <span class="layer-n">${(ev.verified || []).length}</span></div><p class="layer-note">${th('evidence.verified.note')}</p>
+      ${list(ev.verified) || empty('evidence.verified.empty')}
+      ${(ev.simulated || []).length ? `<p class="layer-note">${th('evidence.verified.simulated')}</p>${list(ev.simulated)}` : ''}</div>`,
+    `<div class="layer l-nover"><div class="layer-head"><span class="ico">help</span> ${escapeHtml(t('evidence.not_verified.title'))}
+      <span class="layer-n">${(ev.not_verified || []).length}</span></div><p class="layer-note">${th('evidence.not_verified.note')}</p>
+      ${list(ev.not_verified) || empty('evidence.not_verified.empty')}</div>`,
+  ];
+  return `<div class="card"><div class="head"><span class="ico">shield</span><b>${escapeHtml(t('evidence.title'))}</b>${chip('completed').replace(escapeHtml(t('chips.completed')), escapeHtml(t('chips.layers')))}</div>
+    <div class="layers">${layers.join('')}</div></div>`;
+}
+
+// ── the trace, readable ──
+function timeline(rows) {
+  if (!rows || !rows.length) return '';
+  const icon = {executed: 'check_circle', skipped: 'remove', fallback: 'alt_route', error: 'cancel', warning: 'warning'};
+  const body = rows.map(r => `<tr class="t-${escapeHtml(r.status)}">
+      <td class="t-t">${escapeHtml(t('units.seconds', {n: r.t.toFixed(2)}))}</td>
+      <td><span class="ico">${icon[r.status] || 'radio_button_unchecked'}</span></td>
+      <td class="t-stage">${escapeHtml(stepLabel(r.stage))}</td>
+      <td class="t-sum">${escapeHtml(r.summary || '')}</td>
+      <td class="t-ms">${r.ms > 1 ? escapeHtml(t('units.ms', {n: fmt(r.ms)})) : ''}</td></tr>`).join('');
+  return `<div class="card"><div class="head"><span class="ico">timeline</span><b>${escapeHtml(t('timeline.title'))}</b></div>
+    <details><summary><span class="ico">expand_more</span>${escapeHtml(t('timeline.show'))}</summary><table class="tl">${body}</table></details></div>`;
+}
+
+// ── the single-file deliverable ──
+const EXTENSIONS = {js: 'javascript', ts: 'typescript', py: 'python', sql: 'sql', json: 'json', md: 'markdown', txt: 'text'};
+let DELIVERABLE = null;
+const codeBlock = (path) => markdown('```' + (EXTENSIONS[path.split('.').pop()] || '') + '\n' + DELIVERABLE.files[path] + '\n```');
+function saveFile(name, content) {
+  const url = URL.createObjectURL(new Blob([content], {type: 'text/plain'}));
+  const a = Object.assign(document.createElement('a'), {href: url, download: name});
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function showFile(button) {
+  const section = button.closest('.section');
+  section.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('live-tab', b === button));
+  section.dataset.path = button.dataset.path;
+  section.querySelector('.code-body').innerHTML = codeBlock(button.dataset.path);
+}
+function downloadCurrent(button) {
+  const path = button.closest('.section').dataset.path;
+  saveFile(path.split('/').pop(), DELIVERABLE.files[path]);
+}
+function downloadAll() {
+  Object.entries(DELIVERABLE.files).forEach(([path, content], i) =>
+    setTimeout(() => saveFile(path.split('/').pop(), content), i * 350));
+}
+function goToCode() { const s = document.querySelector('.section'); if (s) s.scrollIntoView({behavior: 'smooth'}); }
+
+// the title of this section can NOT say "correct": it says exactly what happened
+function deliverableSection(d, observed) {
+  DELIVERABLE = d;
+  const paths = Object.keys(d.files || {});
+  if (!paths.length) return `<p class="note">${th('deliverable.no_files')}</p>`;
+  const lines = paths.reduce((n, p) => n + String(d.files[p]).split('\n').length, 0);
+  const status = observed ? observed.status : d.status;
+  const simulated = d.simulated || [];
+  let kind, icon, key, note;
+  if (status === 'not_executed') {
+    kind = 'neutral'; icon = 'block'; key = 'not_executed';
+    note = th('deliverable.note.not_executed', {header: observed ? observed.header : ''});
+  } else if (status === 'no_evidence') {
+    kind = 'simulated'; icon = 'warning'; key = 'no_evidence'; note = th('deliverable.note.no_evidence');
+  } else if (status === 'failed') {
+    kind = 'red'; icon = 'cancel'; key = 'failed'; note = th('deliverable.note.failed');
+  } else if (status === 'passed' && simulated.length) {
+    kind = 'simulated'; icon = 'science'; key = 'simulated';
+    note = th('deliverable.note.simulated', {technologies: simulated.join(', ')});
+  } else if (status === 'passed') {
+    const count = observed && observed.markers ? Object.keys(observed.markers).length : 0;
+    kind = ''; icon = 'check_circle'; key = 'passed';
+    note = (count ? plural('deliverable.note.passed_markers', count) + ' ' : '') + th('deliverable.note.passed');
+  } else {
+    kind = 'neutral'; icon = 'help'; key = 'unknown'; note = th('deliverable.note.unknown');
+  }
+  const command = d.command ? th('deliverable.run_with', {command: d.command}).replace(escapeHtml(d.command), `<code>${escapeHtml(d.command)}</code>`)
+                            : th('deliverable.no_command');
+  return `<section class="section ${kind}" data-path="${escapeHtml(paths[0])}">
+    <header><h2><span class="ico">${icon}</span>${escapeHtml(t(`deliverable.title.${key}`))}</h2>
+      <div class="meta">${plural('deliverable.files', paths.length)} · ${plural('deliverable.lines', lines)} · ${command}<br>${note}</div></header>
+    <div class="tabs">${paths.map((p, i) => `<button type="button" class="${i ? '' : 'live-tab'}" data-path="${escapeHtml(p)}"
+      onclick="showFile(this)">${escapeHtml(p)}</button>`).join('')}</div>
+    <div class="code-body">${codeBlock(paths[0])}</div>
+    <div class="actions">
+      <button type="button" onclick="downloadCurrent(this)"><span class="ico">download</span>${escapeHtml(t('deliverable.download_file'))}</button>
+      ${paths.length > 1 ? `<button type="button" class="grey" onclick="downloadAll()"><span class="ico">download</span>${escapeHtml(t('deliverable.download_all'))}</button>` : ''}
+      ${d.folder ? `<span class="path">${th('deliverable.saved_in', {folder: d.folder})}</span>` : ''}
+    </div></section>`;
+}
+
+// ── the project card: the tree comes FROM THE MANIFEST, never rebuilt by hand ──
+const kb = (n) => n > 1024 ? t('units.kb', {n: (n / 1024).toFixed(1)}) : t('units.bytes', {n: fmt(n)});
+function projectTree(files) {
+  if (!files || !files.length) return `<p class="layer-empty">${th('project.tree_empty')}</p>`;
+  const nodes = {};
+  for (const f of files) {
+    let node = nodes;
+    const parts = f.path.split('/');
+    parts.slice(0, -1).forEach(p => { node = node[p + '/'] = node[p + '/'] || {}; });
+    node[parts[parts.length - 1]] = f;
+  }
+  const draw = (node) => '<ul>' + Object.entries(node).map(([key, child]) => child && !child.path
+    ? `<li><span class="dir">${escapeHtml(key)}</span>${draw(child)}</li>`
+    : `<li>${escapeHtml(key)} <span class="h">${plural('project.file_lines', child.lines)} · ${escapeHtml(child.sha256.slice(0, 10))}</span></li>`).join('') + '</ul>';
+  return `<div class="tree">${draw(nodes)}</div>`;
+}
+function projectSection(p) {
+  const integrity = p.integrity || {ok: false, reason: '', checks: []};
+  const v = p.verification || {};
+  const ready = integrity.ok && p.status === 'VERIFIED';
+  let kind, icon, titleKey, state, note;
+  if (!integrity.ok) {
+    kind = 'red'; icon = 'cancel'; state = 'error'; titleKey = 'integrity_error';
+    note = th('project.note.integrity_error', {reason: integrity.reason});
+  } else if (ready) {
+    // a VERIFIED coming from a script is not a VERIFIED of the model: the code was written by a script
+    kind = ''; icon = 'inventory_2'; state = p.simulated ? 'simulated' : 'completed';
+    titleKey = p.simulated ? 'ready_simulated' : 'ready';
+    note = th('project.note.ready') + (p.simulated ? ' ' + th('project.note.simulated') : '');
+  } else {
+    kind = 'neutral'; icon = 'help'; state = p.status === 'PARTIAL' ? 'warning' : 'unverified'; titleKey = 'incomplete';
+    note = `<code>${escapeHtml(t(`project.status.${p.status}`))}</code> — ${escapeHtml(p.reason)}<br>${th('project.note.incomplete')}`;
+  }
+  const markers = (v.passed || 0) + (v.failed || 0);
+  const figures = [
+    `<div class="layer"><div class="layer-head">${escapeHtml(t('project.figures.files'))}</div><b class="big">${fmt(p.totals.files)}</b>
+      <span class="h">${th('project.figures.files_detail', {directories: fmt(p.totals.directories), lines: fmt(p.totals.lines)})}</span></div>`,
+    markers ? `<div class="layer"><div class="layer-head">${escapeHtml(t('project.figures.markers'))}</div><b class="big">${v.passed}/${markers}</b>
+      <span class="h">${th('project.figures.markers_detail')}</span></div>` : '',
+    `<div class="layer"><div class="layer-head">${escapeHtml(t('project.figures.integrity'))}</div>
+      <b class="big">${integrity.ok ? integrity.checks.length + ' ✓' : '✗'}</b>
+      <span class="h">${integrity.ok ? th('project.figures.integrity_ok') : escapeHtml(integrity.reason.slice(0, 60))}</span></div>`,
+  ].join('');
+  const checks = integrity.checks.map(c => `<li class="ev-row">${c[1] ? '✅' : '❌'} ${escapeHtml(t(`integrity.${c[0]}`))}
+      ${c[2] ? `<span class="ev-risk">${escapeHtml(c[2])}</span>` : ''}</li>`).join('');
+  const phases = (p.phases || []).map(ph => `<li class="ev-row"><b>${escapeHtml(stepLabel(ph.name))}</b>
+      · ${escapeHtml(t(`phase_status.${ph.status}`))} <span class="ev-risk">${escapeHtml(ph.detail)}</span></li>`).join('');
+  // the page NEVER builds this URL: it uses the one the server sent, or draws no button
+  const button = p.download_url
+    ? `<a class="download" href="${escapeHtml(p.download_url)}" download><span class="ico">download</span>${escapeHtml(t('project.download'))}
+         <span class="path">${escapeHtml(p.zip.name)} · ${escapeHtml(kb(p.zip.bytes))} · ${escapeHtml(t('project.sha', {hash: p.zip.sha256.slice(0, 12)}))}</span></a>`
+    : `<p class="note">${th('project.no_download')}</p>`;
+  return `<section class="section ${kind}">
+    <header><h2><span class="ico">${icon}</span>${escapeHtml(t(`project.title.${titleKey}`))}</h2>
+      <div class="meta"><code>${escapeHtml(p.name)}</code> ${chip(state)}<br>${note}</div></header>
+    <div class="layers">${figures}</div>
+    <details open><summary><span class="ico">expand_more</span>${escapeHtml(t('project.tree'))}</summary>${projectTree(p.files)}</details>
+    <details><summary><span class="ico">expand_more</span>${plural('project.phases', (p.phases || []).length)}</summary><ul class="ev">${phases}</ul></details>
+    <details><summary><span class="ico">expand_more</span>${plural('project.checks', integrity.checks.length)}</summary><ul class="ev">${checks}</ul></details>
+    <div class="actions">${button}</div></section>`;
+}
+
+// ── the optional Stellar layer: 'verified' is read back from the contract, not claimed ──
+function chainSection(c) {
+  const links = c.links || {};
+  const i = c.identity, w = c.wallet, p = c.last_payment;
+  const ok = !!(i && i.verified);
+  const note = ok ? th('chain.note.verified', {call: `get_agent_wallet(${i.agent_id})`})
+    : i ? th('chain.note.unverified', {reason: i.reason || t('chain.note.no_reason')}) : th('chain.note.unregistered');
+  const safeLink = (u) => /^https:\/\//.test(u || '') ? u : '';
+  const row = (key, value, link) => value ? `<li class="ev-row"><span class="h">${escapeHtml(t(`chain.rows.${key}`))}</span>
+     ${safeLink(link) ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener"><code>${escapeHtml(value)}</code></a>` : `<code>${escapeHtml(value)}</code>`}</li>` : '';
+  const figures = [
+    w ? `<div class="layer"><div class="layer-head">${escapeHtml(t('chain.balance'))}</div><b class="big">${escapeHtml(w.balance || '—')}</b>
+         <span class="h">${escapeHtml(t('chain.balance_detail', {network: w.network}))}</span></div>` : '',
+    i ? `<div class="layer"><div class="layer-head">${escapeHtml(t('chain.agent_id'))}</div><b class="big">#${escapeHtml(i.agent_id)}</b>
+         <span class="h">${escapeHtml(t('chain.agent_id_detail'))}</span></div>` : '',
+    p ? `<div class="layer"><div class="layer-head">${escapeHtml(t('chain.last_payment'))}</div><b class="big">+${escapeHtml(p.amount)}</b>
+         <span class="h">${escapeHtml(p.asset)} · ${escapeHtml((p.at || '').slice(0, 10))}</span></div>` : '',
+  ].join('');
+  return `<section class="section ${ok ? '' : 'neutral'}">
+    <header><h2><span class="ico">${ok ? 'link' : 'help'}</span>${escapeHtml(t('chain.title'))}</h2>
+      <div class="meta">${chip(ok ? 'onchain' : 'not_onchain')}<br>${note}</div></header>
+    <div class="layers">${figures}</div>
+    <details open><summary><span class="ico">expand_more</span>${escapeHtml(t('chain.show'))}</summary><ul class="ev">
+      ${row('wallet', w && w.address, links.account)}${row('onchain_wallet', i && i.onchain_wallet, links.account)}
+      ${row('registry', i && i.registry, links.registry)}${row('registration_tx', i && i.registration_tx)}
+      ${row('wallet_tx', i && i.wallet_tx)}${row('last_payment', p && p.hash, links.tx)}</ul></details></section>`;
+}
+async function drawChain(out) {
+  try {
+    const c = await (await fetch('/api/v1/blockchain/agent')).json();
+    // a panel saying "off" on every answer is noise: it only appears when there is something real to show
+    if (c.available) out.insertAdjacentHTML('beforeend', chainSection(c));
+  } catch (e) { /* the layer is optional: its absence can never break the page */ }
+}
+
+// ── asking ──
+function example(text) { document.getElementById('box').value = text; ask(); }
+const warn = (html) => `<p class="notice"><span class="ico ico-warn">warning</span> ${html}</p>`;
+
+async function ask(event) {
+  if (event) event.preventDefault();
+  const question = document.getElementById('box').value.trim();
+  if (!question) return;
+  const out = document.getElementById('out');
+  document.querySelectorAll('.piece').forEach(p => p.classList.remove('active'));
+  document.getElementById('p-model').classList.add('active');
+  const mode = document.querySelector('input[name=mode]:checked').value;
+  out.innerHTML = card({kind: 'question', icon: 'person', title: t('cards.you_asked'), summary: escapeHtml(question)});
+  const waiting = document.createElement('p');
+  waiting.className = 'note live';
+  waiting.textContent = t('cards.thinking');
+  out.append(waiting);
+  let liveCost = '';
+  const started = Date.now();
+  const clock = setInterval(() => {
+    const s = Math.round((Date.now() - started) / 1000);
+    const elapsed = s < 60 ? t('time.seconds', {s}) : t('time.minutes', {m: Math.floor(s / 60), s: s % 60});
+    waiting.textContent = t('cards.working', {elapsed}) + (liveCost ? ` · ${liveCost}` : '');
+  }, 1000);
+
+  // a phase stays "running" until the next event arrives: that is exactly what the agent is doing
+  let running = null;
+  const closeRunning = (state = 'completed') => {
+    if (!running) return;
+    running.dataset.state = state;
+    const c = running.querySelector('.chip');
+    if (c) c.outerHTML = chip(state);
+    running = null;
+  };
+  const add = (options) => {
+    waiting.insertAdjacentHTML('beforebegin', card(options));
+    waiting.scrollIntoView({block: 'nearest'});
+    return waiting.previousElementSibling;
+  };
+
+  let done = null, events = 0, retrieval = [], generation = [];
+  try {
+    const response = await fetch('/api/v1/chat', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                                  body: JSON.stringify({question, mode, locale: LOCALE})});
+    if (!response.ok) {
+      let payload = {};
+      try { payload = await response.json(); } catch (e) { /* not JSON */ }
+      const error = payload.error || {};
+      throw new Error(t('cards.request_failed', {status: response.status, code: error.code || '?', message: error.message || ''}));
+    }
+    const reader = response.body.getReader(), decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+      const {done: finished, value} = await reader.read();
+      if (finished) break;
+      buffer += decoder.decode(value, {stream: true});
+      const pieces = buffer.split('\n\n');
+      buffer = pieces.pop();  // the last one may arrive half written
+      for (const piece of pieces) {
+        if (!piece.startsWith('data: ')) continue;
+        const ev = JSON.parse(piece.slice(6));
+        if (ev.type === 'done') { done = ev; continue; }
+        if (ev.type === 'cost') { liveCost = ev.text; continue; }
+        closeRunning();
+        events++;
+        if (ev.type === 'step' && GENERATION_STAGE.test(ev.name || '')) {
+          generation.push(ev);
+        } else if (ev.type === 'step' && ev.name === 'project') {
+          add(foldGeneration(generation, ev)); generation = [];
+        } else if (ev.type === 'step' && (RETRIEVAL_STAGE.test(ev.name || '') || /^fallback:/.test(ev.name || ''))) {
+          retrieval.push(ev);
+        } else if (ev.type === 'step' && ev.name === 'retrieval') {
+          document.getElementById('p-docs').classList.add('active');
+          add(foldRetrieval(retrieval, ev)); retrieval = [];
+        } else if (ev.type === 'step') {
+          if (/^(verification|tests|crud)/.test(ev.name)) document.getElementById('p-tools').classList.add('active');
+          add(pipelineStep(ev));
+        } else if (ev.type === 'phase') {
+          running = add({kind: 'phase', icon: 'flag', title: t('cards.phase'), state: 'running', summary: escapeHtml(ev.text)});
+        } else if (ev.type === 'thought') {
+          add({icon: 'psychology', title: t('cards.thought'), source: 'model',
+               summary: `<div class="md" style="max-height:340px;overflow:auto">${markdown(ev.text)}</div>`});
+        } else if (ev.type === 'tool') {
+          document.getElementById('p-tools').classList.add('active');
+          if (/^search_|^related_boxes$/.test(ev.name)) document.getElementById('p-docs').classList.add('active');
+          add(analyzeTool(ev));
+        }
+      }
+    }
+  } catch (e) {
+    closeRunning('error');
+    done = done || {answer: t('cards.connection_lost', {error: e.message})};
+  }
+  closeRunning();
+  if (retrieval.length) add(foldRetrieval(retrieval, null));
+  clearInterval(clock);
+  waiting.remove();
+  done = done || {answer: t('cards.empty_answer')};
+
+  let html = '';
+  const observed = done.evidence && done.evidence.observed;
+  // the project and a single deliverable are two different things: only ONE is drawn
+  if (done.project) html += projectSection(done.project);
+  else if (done.deliverable) html += deliverableSection(done.deliverable, observed);
+  // if something says "passed" but nothing proves it, say so BEFORE the answer
+  if (done.deliverable && done.deliverable.status === 'passed' && observed
+      && (observed.status === 'not_executed' || observed.status === 'no_evidence'))
+    html += warn(th('warnings.label_not_run', {status: t(`execution_status.${observed.status}`), header: observed.header || ''}));
+  if (!events) html += `<p class="note">${th('cards.no_tools')}</p>`;
+  html += evidencePanel(done.evidence);
+  html += card({kind: 'final', icon: 'article', title: t('cards.final'), summary: `<div class="md">${markdown(done.answer)}</div>`});
+  if (mode === 'pipeline' && done.mode !== 'state') html += warn(th('warnings.skipped'));
+  if (observed && observed.status === 'passed') html += warn(th('warnings.green'));
+  if (mode === 'architect') html += warn(th('warnings.architect'));
+  if (done.claim_status && !['supported', 'no_claim'].includes(done.claim_status))
+    html += warn(th('warnings.claim', {status: t(`claim_status.${done.claim_status}`)}));
+  html += timeline(done.timeline);
+  // without false precision: a double does not cost $0.0000, it costs nothing and says so
+  const cost = done.cost;
+  if (cost && cost.simulated) {
+    html += `<p class="cost cost-sim"><span class="ico">${cost.demo ? 'science' : 'cloud_off'}</span> <b>${escapeHtml(cost.text)}</b> — ${
+      cost.demo ? th('cost.demo', {demo: cost.demo}) : th('cost.no_model')}</p>`;
+  } else if (cost) {
+    html += `<p class="cost"><span class="ico ico-cost">payments</span> <b>${escapeHtml(cost.text)}</b> · ${plural('cost.calls', cost.calls)}${
+      cost.tokens ? ' · ' + plural('cost.tokens', cost.tokens) : ''}</p>`;
+  } else if (done.cost_summary) {
+    html += `<p class="cost"><span class="ico ico-cost">payments</span> ${escapeHtml(done.cost_summary)}</p>`;
+  }
+  out.insertAdjacentHTML('beforeend', html);
+  drawChain(out);
+  const final = document.querySelector('.final');
+  if (final) final.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+
+// ── start: stored choice, else what the server resolves from Accept-Language ──
+(async function start() {
+  let locale = storedLocale();
+  if (!locale) {
+    try { locale = (await (await fetch('/api/v1/locales')).json()).default; } catch (e) { locale = 'en'; }
+  }
+  try { await loadLocale(locale); } catch (e) { try { await loadLocale('en'); } catch (e2) { console.error(e2); } }
+})();
+</script>

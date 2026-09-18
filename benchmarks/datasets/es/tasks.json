@@ -1,0 +1,11 @@
+{
+  "locale": "es",
+  "description": "Tareas del banco de tareas legacy (benchmarks/banco.py), sin cambios.",
+  "tasks": [
+    {"name": "booking", "request": "API de reservas para una clase con 1 sola plaza. Dos usuarios pueden reservar a la vez: nunca deben asignarse dos reservas a la misma plaza. Node.js."},
+    {"name": "payment", "request": "Endpoint POST /payments con orderId y amount, Idempotency-Key y sin doble cobro ante reintentos concurrentes. Node.js."},
+    {"name": "stock", "request": "Reservar stock de un producto sin vender de mas cuando llegan pedidos simultaneos. Node.js."},
+    {"name": "rate_limit", "request": "Rate limiter por usuario con token bucket, seguro ante peticiones concurrentes. Node.js."},
+    {"name": "queue", "request": "Consumidor de una cola que no aplique el mismo mensaje dos veces aunque se reentregue. Node.js."}
+  ]
+}

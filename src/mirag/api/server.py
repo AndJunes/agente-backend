@@ -1,0 +1,244 @@
+"""The HTTP server. Standard library only; loopback by default."""
+
+from __future__ import annotations
+
+import json
+import urllib.parse
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import TYPE_CHECKING, Any, ClassVar
+
+from mirag import __version__
+from mirag.api.router import Router
+from mirag.api.schemas import MAX_BODY_BYTES, ChatRequest, ValidationError
+from mirag.core.text import sha256_hex
+from mirag.projects.artifacts import VALID_ID
+from mirag.projects.model import safe_name
+
+if TYPE_CHECKING:
+    from mirag.container import Container
+
+API = "/api/v1"
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+}
+
+
+class ApiRequestHandler(BaseHTTPRequestHandler):
+    """Routes requests to the container's use cases. One instance per request."""
+
+    container: ClassVar[Container]
+    router: ClassVar[Router]
+    server_version = f"Mirag/{__version__}"
+    protocol_version = "HTTP/1.1"
+
+    # ── plumbing ─────────────────────────────────────────────────────────────
+
+    def log_message(self, format: str, *args: Any) -> None:
+        if self.container.settings.env.get("MIRAG_HTTP_LOG") == "1":
+            super().log_message(format, *args)
+
+    def _split(self) -> tuple[str, dict[str, list[str]]]:
+        path, _, query = self.path.partition("?")
+        return path, urllib.parse.parse_qs(query)
+
+    def _send(self, status: int, body: bytes, content_type: str, head_only: bool = False,
+              extra: dict[str, str] | None = None) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        for key, value in {**SECURITY_HEADERS, **(extra or {})}.items():
+            self.send_header(key, value)
+        self.end_headers()
+        if not head_only:
+            self.wfile.write(body)
+
+    def _json(self, payload: Any, status: int = 200, head_only: bool = False) -> None:
+        """If serialisation fails, a fixed literal is sent: what failed to serialise is never
+        echoed, because that is exactly how a secret leaks."""
+        try:
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        except (TypeError, ValueError):
+            body, status = b'{"error":{"code":"not_serializable","message":"not serializable"}}', 500
+        self._send(status, body, "application/json; charset=utf-8", head_only)
+
+    def _error(self, status: int, code: str, message: str, head_only: bool = False) -> None:
+        self._json({"error": {"code": code, "message": message}}, status, head_only)
+
+    def _dispatch(self, method: str) -> None:
+        path, query = self._split()
+        head_only = method == "HEAD"
+        lookup = self.router.match("GET" if head_only else method, path)
+        if lookup is None:
+            allowed = self.router.allowed_methods(path)
+            if allowed:
+                self._error(405, "method_not_allowed", f"allowed: {', '.join(allowed)}", head_only)
+            else:
+                self._error(404, "not_found", "not found", head_only)
+            return
+        route, params = lookup
+        if head_only and route.name == "download":
+            self._error(404, "not_found", "HEAD does not download", head_only=True)
+            return
+        route.handler(self, query=query, head_only=head_only, **params)
+
+    def do_GET(self) -> None:
+        self._dispatch("GET")
+
+    def do_HEAD(self) -> None:
+        """The same allow-list as GET. It had to be said apart: HEAD used to fall back to the
+        directory listing handler and disclose that ``.env`` existed, its size and mtime."""
+        self._dispatch("HEAD")
+
+    def do_POST(self) -> None:
+        self._dispatch("POST")
+
+    # ── handlers ─────────────────────────────────────────────────────────────
+
+    def page(self, query: dict[str, list[str]], head_only: bool) -> None:
+        try:
+            body = self.container.page_path.read_bytes()
+        except OSError:
+            self._error(500, "page_missing", "the web page is missing", head_only)
+            return
+        self._send(200, body, "text/html; charset=utf-8", head_only)
+
+    def health(self, query: dict[str, list[str]], head_only: bool) -> None:
+        self._json(self.container.health(), head_only=head_only)
+
+    def locales(self, query: dict[str, list[str]], head_only: bool) -> None:
+        i18n = self.container.i18n
+        self._json({"default": i18n.resolve(None, self.headers.get("Accept-Language")),
+                    "supported": list(i18n.supported)}, head_only=head_only)
+
+    def ui_strings(self, query: dict[str, list[str]], head_only: bool, locale: str) -> None:
+        i18n = self.container.i18n
+        if locale not in i18n.supported:
+            self._error(404, "unknown_locale", f"supported: {', '.join(i18n.supported)}", head_only)
+            return
+        self._json({"locale": locale, "messages": i18n.ui_messages(locale)}, head_only=head_only)
+
+    def demos(self, query: dict[str, list[str]], head_only: bool) -> None:
+        requested = (query.get("locale") or [""])[0] or None
+        locale = self.container.i18n.resolve(requested, self.headers.get("Accept-Language"))
+        self._json({"locale": locale, "offline": self.container.settings.offline,
+                    "demos": self.container.demos(locale).listing()}, head_only=head_only)
+
+    def download(self, query: dict[str, list[str]], head_only: bool, artifact_id: str) -> None:
+        """The ZIP of an artifact. **The id is not a path and can never become one.**
+
+        Validated against a 24-hex regex and looked up in memory; the bytes served are EXACTLY
+        the ones the integrity gate inspected (reading them from disk would open a window
+        between "this was checked" and "that was delivered").
+        """
+        if not VALID_ID.match(artifact_id or ""):
+            self._error(400, "malformed_id", "malformed artifact id")  # literal: the input is not echoed
+            return
+        artifact = self.container.artifacts.get(artifact_id)
+        if artifact is None:
+            self._error(410, "gone", "that artifact no longer exists")
+            return
+        if not artifact.downloadable or artifact.package is None:
+            self._error(409, "integrity_error", "ARTIFACT INTEGRITY ERROR: the package did not pass inspection")
+            return
+        data = artifact.package.data
+        if sha256_hex(data) != artifact.package.sha256:  # ~1 ms, and it closes the last gap
+            self._error(500, "integrity_error", "ARTIFACT INTEGRITY ERROR at delivery")
+            return
+        filename = safe_name(artifact.name) + ".zip"
+        if any(c in filename for c in '\r\n"'):
+            self._error(500, "bad_name", "unsafe file name")
+            return
+        self._send(200, data, "application/zip", extra={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Mirag-Sha256": artifact.package.sha256,
+        })
+
+    def blockchain(self, query: dict[str, list[str]], head_only: bool) -> None:
+        """The Stellar layer status. **The import is lazy, and that is the point**: if the
+        optional dependency is missing or the network does not answer, this returns
+        ``{"available": false, "reason": ...}`` and the server stays up."""
+        self._json(self.container.blockchain_status(), head_only=head_only)
+
+    def chat(self, query: dict[str, list[str]], head_only: bool) -> None:
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = -1
+        if length <= 0 or length > MAX_BODY_BYTES:
+            self._error(413 if length > MAX_BODY_BYTES else 400, "bad_length",
+                        f"Content-Length must be between 1 and {MAX_BODY_BYTES}")
+            return
+        try:
+            request = ChatRequest.parse(self.rfile.read(length))
+        except ValidationError as exc:
+            self._error(400, exc.code, str(exc))
+            return
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
+        for key, value in SECURITY_HEADERS.items():
+            self.send_header(key, value)
+        self.end_headers()
+        self.close_connection = True
+        gone = False
+
+        def emit(event: dict[str, Any]) -> None:
+            """One SSE event. flush() on each one or the browser sees nothing until the end."""
+            nonlocal gone
+            if gone:
+                return
+            try:
+                payload = json.dumps(event, ensure_ascii=False, default=str)
+                self.wfile.write(f"data: {payload}\n\n".encode())
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                gone = True
+
+        self.container.chat.handle(request, emit, self.headers.get("Accept-Language"))
+
+
+def build_router() -> Router:
+    router = Router()
+    h = ApiRequestHandler
+    router.add("GET", "/", h.page, "page")
+    router.add("GET", "/index.html", h.page, "page")
+    router.add("GET", f"{API}/health", h.health, "health")
+    router.add("GET", f"{API}/locales", h.locales, "locales")
+    router.add("GET", f"{API}/i18n/{{locale}}", h.ui_strings, "i18n")
+    router.add("GET", f"{API}/demos", h.demos, "demos")
+    router.add("GET", f"{API}/artifacts/{{artifact_id}}/download", h.download, "download")
+    router.add("GET", f"{API}/blockchain/agent", h.blockchain, "blockchain")
+    router.add("POST", f"{API}/chat", h.chat, "chat")
+    return router
+
+
+class MiragHTTPServer(ThreadingHTTPServer):
+    """Threaded: with a single thread, one long request (the architect mode takes minutes)
+    freezes the whole page."""
+
+    daemon_threads = True
+
+
+def build_server(container: Container, host: str | None = None, port: int | None = None) -> MiragHTTPServer:
+    handler = type("BoundApiRequestHandler", (ApiRequestHandler,), {"container": container, "router": build_router()})
+    # Loopback and not "": "" is 0.0.0.0, every interface. This is a single-user local tool
+    # without auth; it has no reason to face the network.
+    return MiragHTTPServer((host or container.settings.host, container.settings.port if port is None else port), handler)
+
+
+def serve(container: Container) -> None:
+    server = build_server(container)
+    host, port = server.server_address[:2]
+    address = host.decode() if isinstance(host, bytes) else host
+    print(f"Mirag {__version__} listening on http://{address}:{port}  (offline={container.settings.offline})")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()

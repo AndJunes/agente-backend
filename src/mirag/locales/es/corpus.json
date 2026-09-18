@@ -1,0 +1,23 @@
+{
+  "card_marker": "Ficha",
+  "fields": {
+    "when": "Cuándo",
+    "pattern": "Patrón",
+    "anti_pattern": "Anti-patrón",
+    "limits": "Límites",
+    "how_it_fails": "Cómo falla",
+    "decision": "Decisión",
+    "depends_on": "Depende de",
+    "trade_off": "Trade-off",
+    "related": "Relacionado"
+  },
+  "failure_title_prefixes": ["Cómo falla", "Escenarios de fallo", "Inconsistencias de negocio"],
+  "sources_title": "Fuentes",
+  "syllabus_marker": "Cubre del temario",
+  "labels": {
+    "fails_like": "falla así",
+    "avoid": "NO",
+    "prefer": "SÍ",
+    "see_box": "(ver la caja)"
+  }
+}

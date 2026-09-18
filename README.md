@@ -1,105 +1,116 @@
 # Mirag
 
-**Le das un problema. Mirag busca lo que sabe, propone una solución, la ejecuta, y te enseña
-exactamente en qué se apoya para confiar en ella — y en qué no.**
+**Give it a problem. Mirag searches what it knows, proposes a solution, runs it, and shows you
+exactly what that solution rests on - and what it does not.**
 
-Python de biblioteca estándar. **El núcleo no tiene ninguna dependencia externa** —los 30 módulos
-de la raíz, verificado recorriendo su AST. La capa `blockchain/`, que vive fuera de esa cadena y
-tiene su propio entorno, declara `stellar-sdk`; ver [docs/blockchain.md](docs/blockchain.md).
+*[Leer en español](README.es.md)*
+
+Python standard library only: **the core has zero third-party dependencies** (checked by an
+architecture test). The optional Stellar identity layer declares `stellar-sdk` as an extra.
+English and Spanish are fully supported: knowledge corpus, UI, answers and language heuristics.
 
 ```bash
-python3 server.py          # la pantalla: http://127.0.0.1:8000
+pip install -e ".[dev]"
+mirag serve                 # http://127.0.0.1:8000
 ```
 
-Con `MIRAG_OFFLINE=1` (el valor por defecto) hay tres demos preparadas y no cuesta nada. Para
-respuestas reales, pon tu clave en `.env` (copia `.env.example`) y arranca con `MIRAG_OFFLINE=0`.
+With `MIRAG_OFFLINE=1` (the default) four prepared demos run end to end and nothing costs
+money. For real answers put your key in `.env` (copy `.env.example`) and start with
+`MIRAG_OFFLINE=0`.
 
-## Qué hace
-
-```
-Pregunta → Plan → Recuperación (3 índices) → Contexto → Modelo
-        → Herramienta → Verificación → Evidencia → Respuesta
-```
-
-Y si le pides un proyecto entero, en vez de un archivo suelto:
+## What it does
 
 ```
-Creá una API REST de libros con CRUD completo. Arquitectura por dominios.
+Question → Plan → Retrieval (3 indices) → Context → Model
+         → Tool → Verification → Evidence → Answer
+```
+
+And if you ask for a whole project instead of a single file:
+
+```
+Create a REST API of books with full CRUD. Architecture by domain.
         ↓
-libros-api · 14 archivos · sus tests ejecutados · [ Descargar ZIP ]
+books-api · 14 files · its tests executed · [ Download ZIP ]
 ```
 
-## Lo que lo hace distinto
+## What makes it different
 
-**El estado lo decide la ejecución, nunca el modelo.** Cuatro veredictos posibles:
+**Status is decided by execution, never by the model.** Four possible verdicts:
 
 | | |
 |---|---|
-| `verde` | hubo marcadores de test y todos pasaron |
-| `rojo` | se ejecutó y falló |
-| `sin evidencia` | terminó sin error y **no imprimió ni un marcador** — esto no es aprobar |
-| `no ejecutado` | ni llegó a correr |
+| `passed` | there were test markers and all of them passed |
+| `failed` | it ran and failed |
+| `no_evidence` | it finished without error and **printed not a single marker** - that is not passing |
+| `not_executed` | it never ran |
 
-**Cada respuesta separa tres cosas** que casi todas las herramientas mezclan: lo que el modelo
-*dice* (`MODEL CLAIM`), lo que la máquina *vio* (`OBSERVED`), y lo que queda *demostrado*
-(`VERIFIED`). Si el modelo afirma que los tests pasan y no hay marcadores, sale un aviso encima y
-su texto se deja entero para que lo juzgues.
+**Every answer separates three things** most tools mix up: what the model *says*
+(`MODEL CLAIM`), what the machine *saw* (`OBSERVED`), and what is *proved* (`VERIFIED`). If the
+model claims the tests pass and there are no markers, a warning goes on top and its text is kept
+whole for you to judge.
 
-**Si el corpus no cubre lo que preguntas, lo dice antes de responder.**
+**If the corpus does not cover what you ask, it says so before answering.**
 
-## Cómo está organizado
+## Repository layout
 
-| | |
-|---|---|
-| **raíz** | los ~30 módulos de producción: `server.py`, `pipeline.py`, `recuperacion.py`, `skills.py`… |
-| `conocimientos/` | el corpus: 19 cajas de backend en formato *knowledge item* |
-| `tests/` | 21 suites, sin pytest — cada archivo es su propio runner |
-| `demos/` | demos ejecutables a mano |
-| `benchmarks/` | los bancos de medición y sus datos |
-| `experimental/` | existe, funciona, **no está en el camino de producción** |
-| `docs/` | cómo se usa Mirag |
-| `blockchain/` | identidad Stellar 8004 — la única carpeta con dependencias externas |
-| `reports/` | cómo llegamos hasta aquí, y qué se descubrió por el camino |
-
-Detalle en [REPOSITORY_STRUCTURE.md](REPOSITORY_STRUCTURE.md), lo que se queda donde está y por qué
-en [RELOCATION_EXCEPTIONS.md](RELOCATION_EXCEPTIONS.md), y cómo se llegó a esta forma —con los tres
-problemas que la mudanza destapó— en
-[reports/REPOSITORY_CLEANUP_REPORT.md](reports/REPOSITORY_CLEANUP_REPORT.md).
-
-## Correrlo
-
-```bash
-python3 server.py                      # la pantalla
-python3 demos.py todas                 # las 4 demos canónicas, con el candado puesto, $0
-python3 demos/demo_proyecto.py         # genera un proyecto entero y lo empaqueta
-python3 benchmarks/eval.py             # mide la recuperación
-python3 benchmarks/banco_proyectos.py 10   # cuántos proyectos de diez salen verificados
-for f in tests/test_*.py; do python3 "$f"; done   # la suite, sin llamar al modelo
-
-# la identidad on-chain del Backend Agent (Stellar Testnet, $0)
-MIRAG_BLOCKCHAIN=testnet uv run --project blockchain python demos/blockchain_agent_demo.py
+```
+.
+├── src/mirag/               the package (see docs/en/architecture.md)
+│   ├── locales/{en,es}/     messages, UI strings, language heuristics, corpus markers
+│   ├── knowledge/{en,es}/   the knowledge corpus: 19 senior-backend boxes per language
+│   └── web/index.html       the page
+├── tests/                   unit, integration and architecture suites (pytest)
+├── benchmarks/              retrieval and project benchmarks, datasets and results
+├── scripts/                 manual demos (Stellar identity)
+├── docs/{en,es}/            documentation in both languages
+└── docs/history/            the reports that explain how the project got here (Spanish)
 ```
 
-Si sale `CERTIFICATE_VERIFY_FAILED`, tu Python no tiene los certificados raíz. Arreglo permanente:
-`/Applications/Python 3.14/Install Certificates.command`. Atajo: `/opt/homebrew/bin/python3`.
-
-## El tope de gasto
-
-Cada llamada trae el coste real de OpenRouter, así que el agente **corta antes de pasarse**, no
-después de la factura:
+## Running it
 
 ```bash
-LIMITE_USD=0.20 MIRAG_OFFLINE=0 python3 server.py
+mirag serve                          # the page (offline, $0)
+mirag demo all --locale es           # the 4 canonical demos, with their contracts checked
+mirag ask "What is an idempotency key?" --locale en
+mirag features                       # which pipeline stages are on, and why
+pytest                               # the fast suite, offline
+pytest -m "not network"              # everything, including the slow tests
 ```
 
-Por defecto, 0,50 $ por petición.
+`make run`, `make test`, `make lint`, `make demo` do the same on systems with `make`.
 
-## Lo que no está demostrado
+## The spending cap
 
-La generación de proyectos funciona de punta a punta —genera, ejecuta, repara, empaqueta, comprueba
-la integridad del ZIP y lo sirve—, pero **medido sobre 10 corridas con modelo real, cero llegaron a
-`VERIFICADO`**: fallan por sintaxis, por imports o por sus propios tests. Lo demostrado es que la
-máquina no miente cuando eso pasa. Los números están en
-[reports/PROJECT_BENCHMARK_REPORT.md](reports/PROJECT_BENCHMARK_REPORT.md).
+Every call returns the real OpenRouter cost, so the agent **stops before going over**, not
+after the invoice:
 
-Más límites conocidos, todos medidos, en [docs/PRODUCT_OVERVIEW.md](docs/PRODUCT_OVERVIEW.md).
+```bash
+MIRAG_BUDGET_USD=0.20 MIRAG_OFFLINE=0 mirag serve
+```
+
+The default is $0.50 per request.
+
+## The API
+
+`POST /api/v1/chat` streams Server-Sent Events; generated projects download from
+`GET /api/v1/artifacts/{id}/download`. The full contract is in [docs/en/api.md](docs/en/api.md).
+
+## What is not proven
+
+Project generation works end to end - it generates, runs, repairs, packages, checks the
+integrity of the ZIP and serves it - but, **measured over 10 runs with a real model, none
+reached `VERIFIED`**: they fail on syntax, imports or their own tests. What is proven is that
+the machine does not lie when that happens. See
+[docs/history/reports/PROJECT_BENCHMARK_REPORT.md](docs/history/reports/PROJECT_BENCHMARK_REPORT.md).
+
+## Documentation
+
+| | English | Español |
+|---|---|---|
+| Architecture | [docs/en/architecture.md](docs/en/architecture.md) | [docs/es/architecture.md](docs/es/architecture.md) |
+| HTTP API | [docs/en/api.md](docs/en/api.md) | [docs/es/api.md](docs/es/api.md) |
+| i18n | [docs/en/i18n.md](docs/en/i18n.md) | [docs/es/i18n.md](docs/es/i18n.md) |
+| Configuration | [docs/en/configuration.md](docs/en/configuration.md) | [docs/es/configuration.md](docs/es/configuration.md) |
+| Development | [docs/en/development.md](docs/en/development.md) | [docs/es/development.md](docs/es/development.md) |
+| Stellar identity | [docs/en/blockchain.md](docs/en/blockchain.md) | [docs/es/blockchain.md](docs/es/blockchain.md) |
+| Changelog | [CHANGELOG.md](CHANGELOG.md) | |
