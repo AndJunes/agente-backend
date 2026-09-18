@@ -24,7 +24,17 @@ set -euo pipefail
 # equivocado y descubrirlo en el push.
 IMAGEN="${MIRAG_IMAGEN:-}"
 if [ -z "$IMAGEN" ]; then
+  # `docker info` solo enseña el Username cuando la credencial vive en config.json. Si
+  # esta en un ayudante (osxkeychain, pass...), que es lo normal, no dice nada — y ahi
+  # fallaba esto. Se le pregunta entonces al propio ayudante, que si lo sabe.
   usuario="$(docker info 2>/dev/null | awk -F': ' '/^ Username:/ {print $2}' | tr -d ' ')"
+  if [ -z "$usuario" ]; then
+    ayudante="$(python3 -c "import json,pathlib;p=pathlib.Path.home()/'.docker'/'config.json';print(json.loads(p.read_text() or '{}').get('credsStore',''))" 2>/dev/null || true)"
+    if [ -n "$ayudante" ] && command -v "docker-credential-$ayudante" >/dev/null; then
+      usuario="$("docker-credential-$ayudante" list 2>/dev/null \
+        | python3 -c "import json,sys;print(json.load(sys.stdin).get('https://index.docker.io/v1/',''))" 2>/dev/null || true)"
+    fi
+  fi
   [ -n "$usuario" ] || { printf "\n\033[31m✗ no se de que usuario etiquetar la imagen.\033[0m\n" >&2
     printf "  Haz login:            docker login\n" >&2
     printf "  O dilo a mano:        MIRAG_IMAGEN=tuusuario/agente-backend ./publicar.sh\n" >&2
@@ -33,6 +43,13 @@ if [ -z "$IMAGEN" ]; then
   IMAGEN="$(printf '%s' "$usuario" | tr '[:upper:]' '[:lower:]')/agente-backend"
   printf "\033[2m  (imagen deducida del login: %s)\033[0m\n" "$IMAGEN"
 fi
+# Solo para los mensajes: si la primera parte del nombre tiene un punto, es un registro
+# (ghcr.io, registry.gitlab.com...). Si no, es un usuario y el registro es Docker Hub.
+case "${IMAGEN%%/*}" in
+  *.*) REGISTRO="${IMAGEN%%/*}" ;;
+  *)   REGISTRO="Docker Hub" ;;
+esac
+
 PUBLICAR=1
 [ "${1:-}" = "--sin-publicar" ] && PUBLICAR=0
 
@@ -116,7 +133,7 @@ if [ "$PUBLICAR" -eq 0 ]; then
   exit 0
 fi
 
-paso "Publicando en GHCR"
+paso "Publicando en $REGISTRO"
 for etiqueta in "$SHA" latest "$SHA-identidad" latest-identidad; do
   docker push -q "$IMAGEN:$etiqueta" >/dev/null || rojo "fallo al publicar $etiqueta (¿hiciste el login?)"
   ok "$IMAGEN:$etiqueta"
