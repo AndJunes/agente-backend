@@ -20,8 +20,12 @@ if TYPE_CHECKING:
 
 API = "/api/v1"
 TOKEN_HEADER = "X-Mirag-Token"
-PROTECTED_ROUTES = frozenset({"chat", "download"})
-"""What costs money or hands out generated code. The page, health and the rest stay open."""
+PROTECTED_ROUTES = frozenset({"chat", "download", "operation"})
+"""What costs money or hands out generated code. The page, health and the rest stay open.
+
+`operation` is in here from the moment the route exists, not after someone notices. This is a
+frozenset of route NAMES and the check is membership, so a route registered without its name
+added is a route with no token on a network whose whole defence is that token."""
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
@@ -185,6 +189,51 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
         ``{"available": false, "reason": ...}`` and the server stays up."""
         self._json(self.container.blockchain_status(), head_only=head_only)
 
+    def operation(self, query: dict[str, list[str]], head_only: bool, operation: str) -> None:
+        """One of this agent's named operations: JSON in, JSON out, no stream.
+
+        Not a mode of `/chat`: `ChatRequest` is `question`, `mode`, `locale` and deliberately
+        strict, with nowhere to carry a questionnaire's answers or the plan being revised.
+        """
+        run = (self.container.operations or {}).get(operation)
+        if run is None:
+            self._error(404, "unknown_operation",
+                        f"this agent serves: {', '.join(sorted(self.container.operations or {}))}", head_only)
+            return
+        payload = self._read_json(head_only)
+        if payload is None:
+            return
+        locale = self.container.i18n.resolve(
+            payload.get("locale") if isinstance(payload.get("locale"), str) else None,
+            self.headers.get("Accept-Language"))
+        try:
+            self._json(run(payload, locale), head_only=head_only)
+        except ValueError as exc:
+            self._error(400, "invalid_request", str(exc), head_only)
+        except RuntimeError as exc:
+            # 502: the operation is well-formed and the model behind it did not deliver.
+            self._error(502, "upstream_failed", str(exc), head_only)
+
+    def _read_json(self, head_only: bool) -> dict[str, Any] | None:
+        """The request body as an object, or ``None`` after answering with the error."""
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = -1
+        if length <= 0 or length > MAX_BODY_BYTES:
+            self._error(413 if length > MAX_BODY_BYTES else 400, "bad_length",
+                        f"Content-Length must be between 1 and {MAX_BODY_BYTES}", head_only)
+            return None
+        try:
+            payload = json.loads(self.rfile.read(length))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self._error(400, "invalid_json", "the body must be a JSON object", head_only)
+            return None
+        if not isinstance(payload, dict):
+            self._error(400, "invalid_json", "the body must be a JSON object", head_only)
+            return None
+        return payload
+
     def chat(self, query: dict[str, list[str]], head_only: bool) -> None:
         try:
             length = int(self.headers.get("Content-Length") or 0)
@@ -225,7 +274,7 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
         self.container.chat.handle(request, emit, self.headers.get("Accept-Language"))
 
 
-def build_router() -> Router:
+def build_router(container: Container | None = None) -> Router:
     router = Router()
     h = ApiRequestHandler
     router.add("GET", "/", h.page, "page")
@@ -237,6 +286,10 @@ def build_router() -> Router:
     router.add("GET", f"{API}/artifacts/{{artifact_id}}/download", h.download, "download")
     router.add("GET", f"{API}/blockchain/agent", h.blockchain, "blockchain")
     router.add("POST", f"{API}/chat", h.chat, "chat")
+    # Registered only when this container has operations, so a process that cannot serve them
+    # does not advertise them. The backend answers 404 here, which is the truth.
+    if container is not None and container.operations:
+        router.add("POST", f"{API}/{{operation}}", h.operation, "operation")
     return router
 
 
@@ -248,7 +301,8 @@ class MiragHTTPServer(ThreadingHTTPServer):
 
 
 def build_server(container: Container, host: str | None = None, port: int | None = None) -> MiragHTTPServer:
-    handler = type("BoundApiRequestHandler", (ApiRequestHandler,), {"container": container, "router": build_router()})
+    handler = type("BoundApiRequestHandler", (ApiRequestHandler,),
+                   {"container": container, "router": build_router(container)})
     # Loopback by default and never "": "" is 0.0.0.0, every interface. The one planned
     # exception is a container, where 0.0.0.0 is the only way a published port reaches the
     # process; what isolates it there is publishing against 127.0.0.1 (docs/*/deployment.md).

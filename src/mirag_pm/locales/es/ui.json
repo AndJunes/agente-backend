@@ -1,0 +1,408 @@
+{
+  "page": {
+    "title": "Mirag — ver el flujo",
+    "heading": "Mirag — ver el flujo",
+    "subtitle": "Haz una pregunta y mira **qué hace el agente paso a paso** antes de responderte."
+  },
+  "language": {
+    "label": "Idioma",
+    "names": {
+      "en": "English",
+      "es": "Español"
+    }
+  },
+  "pieces": {
+    "model_title": "El modelo",
+    "model_text": "decide qué hacer",
+    "tools_title": "Las herramientas",
+    "tools_text": "hacen el trabajo",
+    "docs_title": "Los documentos",
+    "docs_text": "19 cajas de backend"
+  },
+  "legend": {
+    "summary": "Qué significa cada color",
+    "running": "el paso está en curso ahora mismo.",
+    "completed": "algo **se ejecutó de verdad** y terminó bien. El verde no se usa para nada más.",
+    "warning": "terminó, pero con salvedades que conviene leer.",
+    "error": "falló, y abajo está la salida real del fallo.",
+    "unverified": "el modelo produjo algo pero **nadie lo ha comprobado todavía**. Generar código no es lo mismo que demostrar que funciona.",
+    "simulated": "respondió una demo preparada: la decisión del modelo salió de un guion fijo. Lo recuperado, ejecutado y verificado es real.",
+    "no_model": "sin conexión y sin una demo que encaje: no hay respuesta del modelo, y no se inventa ninguna."
+  },
+  "modes": {
+    "label": "Modo",
+    "experimental": "experimental",
+    "pipeline": {
+      "name": "Pipeline",
+      "description": "el camino de producción: recupera, genera, ejecuta y verifica"
+    },
+    "architect": {
+      "name": "Arquitecto",
+      "description": "8 fases de diseño (~10 min). Sus fases no tienen el mismo nivel de verificación que Pipeline."
+    },
+    "state": {
+      "name": "Autoconocimiento"
+    }
+  },
+  "form": {
+    "placeholder": "Escribe tu pregunta...",
+    "ask": "Preguntar",
+    "question_label": "Tu pregunta"
+  },
+  "demos": {
+    "label": "Demos preparadas",
+    "unavailable": "No se pudieron cargar las demos preparadas.",
+    "hints": {
+      "knowledge": "qué se recuperó y por qué",
+      "construction": "genera, ejecuta y prueba",
+      "abstention": "dice que no sabe",
+      "project": "entero, con ZIP"
+    }
+  },
+  "chips": {
+    "running": "ejecutando",
+    "completed": "completado",
+    "warning": "advertencia",
+    "error": "error",
+    "unverified": "no verificado",
+    "skipped": "omitido",
+    "fallback": "fallback",
+    "insufficient": "evidencia insuficiente",
+    "simulated": "simulado",
+    "no_model": "sin modelo",
+    "experimental": "experimental",
+    "onchain": "verificado on-chain",
+    "not_onchain": "sin verificar on-chain",
+    "disabled": "desactivado",
+    "layers": "4 capas"
+  },
+  "step_status": {
+    "executed": "ejecutado",
+    "skipped": "omitido",
+    "fallback": "fallback",
+    "error": "error",
+    "warning": "advertencia",
+    "simulated": "simulado",
+    "no_model": "sin modelo"
+  },
+  "sources": {
+    "execution": "evidencia de ejecución",
+    "model": "lo dice el modelo",
+    "corpus": "extraído del corpus"
+  },
+  "steps": {
+    "offline_lock": "Candado offline",
+    "project_state": "Estado del proyecto",
+    "retrieval_plan": "Plan de búsqueda",
+    "filter": "Filtro",
+    "bm25": "BM25",
+    "vector": "Vectorial",
+    "rrf": "Fusión RRF",
+    "reranker": "Reranker",
+    "fallback": "Fallback",
+    "retrieval": "Recuperación",
+    "symbols": "Símbolos",
+    "graph": "Grafo",
+    "sufficiency": "Suficiencia",
+    "context": "Contexto",
+    "model": "Modelo",
+    "delivery": "Entrega",
+    "verification": "Verificación",
+    "repair": "Reparación",
+    "verification_after_repair": "Verificación tras el arreglo",
+    "evidence": "Evidencia",
+    "anti_patterns": "Antipatrones",
+    "persistence": "Persistencia",
+    "specification": "Especificación",
+    "plan": "Plan",
+    "generation": "Generación",
+    "project": "Proyecto",
+    "structure": "Estructura",
+    "syntax": "Sintaxis",
+    "imports": "Imports",
+    "execution": "Ejecución",
+    "tests": "Tests",
+    "documented_command": "Comando documentado",
+    "tests_after_repair": "Tests tras el arreglo",
+    "crud": "CRUD por HTTP",
+    "packaging": "Empaquetado",
+    "artifact": "Artefacto"
+  },
+  "suffixes": {
+    "knowledge": "conocimiento",
+    "anti_patterns": "antipatrones",
+    "failures": "fallos",
+    "core": "núcleo",
+    "domain": "dominio",
+    "tests": "tests",
+    "docs": "documentación"
+  },
+  "retrieval": {
+    "chunks": {
+      "one": "**{count}** fragmento recuperado",
+      "other": "**{count}** fragmentos recuperados"
+    },
+    "no_reason": "sin motivo"
+  },
+  "generation": {
+    "title": "Proyecto generado"
+  },
+  "cards": {
+    "you_asked": "Tú preguntaste",
+    "thinking": "Pensando…",
+    "working": "Trabajando… {elapsed}",
+    "phase": "Fase",
+    "thought": "Qué decidió el agente",
+    "final": "Respuesta final",
+    "details": "Ver detalles",
+    "no_tools": "No necesitó ninguna herramienta: contestó de memoria.",
+    "connection_lost": "Se cortó la conexión: {error}",
+    "request_failed": "El servidor rechazó la pregunta ({status} · {code}): {message}",
+    "empty_answer": "El flujo terminó sin una respuesta.",
+    "go_to_code": "Ir al código",
+    "code_below": "El código completo no se repite aquí: está abajo, en su propia sección, con pestañas y descarga."
+  },
+  "time": {
+    "seconds": "{s}s",
+    "minutes": "{m}m {s}s"
+  },
+  "units": {
+    "seconds": "{n}s",
+    "ms": "{n} ms",
+    "bytes": "{n} bytes",
+    "kb": "{n} KB"
+  },
+  "tools": {
+    "run": {
+      "title": "Ejecutó los tests",
+      "not_executed_title": "No se pudo ejecutar nada",
+      "not_executed_note": "Sin ejecución no hay evidencia: lo que venga después sigue siendo una afirmación del modelo, no un hecho comprobado.",
+      "failed_markers": "**{passed} de {total}** tests pasaron, {failed} fallaron.",
+      "failed_exit": "El comando terminó con error.",
+      "markers_failed": "**{failed} de {total}** marcadores fallaron",
+      "markers_failed_note": "El comando salió sin error, pero los marcadores dicen otra cosa. Un test que imprime FAIL y sale con 0 es un test roto: ningún CI lo detectaría.",
+      "passed": "**{passed} de {total}** tests ejecutados y en verde.",
+      "proven": {
+        "one": "Demostrado: ese test pasa. No demostrado: todo lo que ese test no comprueba.",
+        "other": "Demostrado: esos {count} tests pasan. No demostrado: todo lo que esos tests no comprueban."
+      },
+      "no_markers": "El comando terminó sin error, pero la salida no trae marcadores `TEST:<id>:PASS`: no se puede contar qué se probó realmente.",
+      "no_output": "(sin salida)"
+    },
+    "search": {
+      "title": "Buscó en los documentos",
+      "query": "buscó {query}",
+      "empty": "sin resultados útiles",
+      "tokens": "{tokens} tokens recuperados"
+    },
+    "other": {
+      "title": "Usó una herramienta",
+      "returned": "devolvió: {value}",
+      "arguments": "argumentos:"
+    }
+  },
+  "code": {
+    "label": "código",
+    "copy": "copiar",
+    "copied": "¡copiado!"
+  },
+  "deliverable": {
+    "title": {
+      "not_executed": "Código entregado — no se ejecutó nada",
+      "no_evidence": "Se ejecutó, pero sin evidencia que contar",
+      "failed": "Código entregado — los tests NO pasaron",
+      "simulated": "Tests en verde, pero sobre una simulación",
+      "passed": "Tests ejecutados, y pasaron",
+      "unknown": "Código entregado, sin evidencia de ejecución"
+    },
+    "note": {
+      "not_executed": "El comando propuesto nunca llegó a correr: {header}. Lo único que ocurrió es que el modelo escribió este código; **nadie lo ha comprobado**.",
+      "no_evidence": "El comando terminó sin error y no hay marcadores de test en la salida: no se puede saber qué se probó.",
+      "failed": "Te lo damos igual para que lo leas, pero la ejecución no lo respalda.",
+      "simulated": "**{technologies}** está sustituido por una simulación en memoria: los tests prueban la lógica, **no** las garantías reales (constraints, aislamiento, bloqueos).",
+      "passed_markers": {
+        "one": "**{count} marcador** en la salida, y está en PASS.",
+        "other": "**{count} marcadores** en la salida, todos en PASS."
+      },
+      "passed": "Verde significa que el comando se ejecutó de verdad y sus tests pasaron — no que el código sea correcto: prueba lo que esos tests cubren.",
+      "unknown": "En esta página no se vio ningún paso que ejecutara nada: nadie ha comprobado este código."
+    },
+    "files": {
+      "one": "{count} archivo",
+      "other": "{count} archivos"
+    },
+    "lines": {
+      "one": "{count} línea",
+      "other": "{count} líneas"
+    },
+    "run_with": "ejecútalo con {command}",
+    "no_command": "no se propuso ningún comando",
+    "download_file": "Descargar este archivo",
+    "download_all": "Descargar todos",
+    "saved_in": "ya guardados en {folder}",
+    "no_files": "El entregable no trae archivos."
+  },
+  "evidence": {
+    "title": "Evidencia",
+    "claim": {
+      "title": "MODEL CLAIM",
+      "note": "Lo que el modelo **dijo** que iba a cubrir. Todavía no es un hecho.",
+      "empty": "No declaró ninguna propiedad.",
+      "uncovered": "Y reconoció no cubrir:"
+    },
+    "observed": {
+      "title": "OBSERVED",
+      "note": "Lo que Mirag **vio** al ejecutar. No opina nadie.",
+      "counts": "{passed} pasan · {failed} fallan",
+      "no_markers": "La ejecución no imprimió ningún marcador.",
+      "truncated": "La salida se recortó; los marcadores se conservaron.",
+      "nothing": "No se ejecutó nada: no hay nada observado."
+    },
+    "verified": {
+      "title": "VERIFIED",
+      "note": "Declarado **y** demostrado por un marcador real.",
+      "empty": "Nada quedó demostrado.",
+      "simulated": "Demostrado contra una **simulación**, que no es lo mismo:"
+    },
+    "not_verified": {
+      "title": "NOT VERIFIED",
+      "note": "Declarado y **no** demostrado. No significa que esté mal: significa que nadie lo probó.",
+      "empty": "Nada quedó sin demostrar."
+    }
+  },
+  "property_status": {
+    "verified": "verificada",
+    "verified_in_simulation": "verificada en simulación",
+    "refuted": "refutada",
+    "unverified": "sin verificar"
+  },
+  "execution_status": {
+    "passed": "pasó",
+    "failed": "falló",
+    "no_evidence": "sin evidencia",
+    "not_executed": "no ejecutado"
+  },
+  "claim_status": {
+    "supported": "respaldada",
+    "unsupported": "sin respaldo",
+    "refuted": "refutada",
+    "not_executed": "no ejecutada",
+    "no_claim": "sin afirmación"
+  },
+  "timeline": {
+    "title": "Qué pasó, en orden",
+    "show": "Ver la traza"
+  },
+  "cost": {
+    "demo": "la decisión del modelo vino del guion de la demo {demo}. Lo recuperado, ejecutado y verificado sí ocurrió.",
+    "no_model": "no hubo decisión del modelo. Lo recuperado y el contexto sí son reales.",
+    "calls": {
+      "one": "{count} llamada",
+      "other": "{count} llamadas"
+    },
+    "tokens": {
+      "one": "{count} token",
+      "other": "{count} tokens"
+    }
+  },
+  "warnings": {
+    "skipped": "Las etapas marcadas **omitido** no se ejecutaron, y cada una dice por qué: la mayoría porque nadie ha medido todavía que aporten. Eso es deliberado — una etapa sin medir nace apagada.",
+    "green": "Verde aquí significa **se ejecutó y pasó**, no **es correcto**. Pasar unos tests solo demuestra lo que esos tests cubren: un test de idempotencia *secuencial* pasa aunque el código tenga una condición de carrera.",
+    "architect": "Modo **experimental**: sus fases no pasan por la disciplina de evidencia del pipeline. Lo que veas aquí es **lo que dice el modelo**, no evidencia de ejecución.",
+    "claim": "**La respuesta de arriba lleva un aviso.** Mirag comparó lo que el modelo afirma con los marcadores que produjo la ejecución real, y no cuadran ({status}). El texto del modelo se deja entero para que lo juzgues vos.",
+    "label_not_run": "**Ojo con lo que vas a leer abajo.** El entregable dice *pasó*, pero el ejecutor observó {status} ({header}). Una etiqueta no es una ejecución: no se probó nada."
+  },
+  "project": {
+    "title": {
+      "integrity_error": "ARTIFACT INTEGRITY ERROR",
+      "ready": "Proyecto listo para descargar",
+      "ready_simulated": "Proyecto listo — decisión simulada",
+      "incomplete": "Proyecto generado — la verificación no está completa"
+    },
+    "note": {
+      "integrity_error": "No se puede demostrar que el ZIP sea el proyecto que se verificó, así que no se entrega. {reason}",
+      "ready": "Sus tests se ejecutaron de verdad y pasaron. Verde significa **se ejecutó y pasó**, no **es correcto**: prueba lo que esos tests cubren.",
+      "simulated": "**El código lo escribió un guion fijo, no el modelo**: lo que se ejecutó, verificó y empaquetó es real, pero esto no demuestra que el modelo genere un proyecto así.",
+      "incomplete": "El ZIP es exactamente lo que se generó, y eso sí se puede afirmar. Lo que no se puede decir es que funcione."
+    },
+    "figures": {
+      "files": "ARCHIVOS",
+      "files_detail": "en {directories} directorios · {lines} líneas",
+      "markers": "MARCADORES",
+      "markers_detail": "en PASS, de una ejecución real",
+      "integrity": "INTEGRIDAD",
+      "integrity_ok": "el ZIP es lo que se verificó"
+    },
+    "tree": "El árbol del proyecto",
+    "tree_empty": "El manifiesto no trae ningún archivo.",
+    "file_lines": {
+      "one": "{count} línea",
+      "other": "{count} líneas"
+    },
+    "checks": {
+      "one": "La {count} comprobación de integridad",
+      "other": "Las {count} comprobaciones de integridad"
+    },
+    "phases": {
+      "one": "La {count} fase de certificación",
+      "other": "Las {count} fases de certificación"
+    },
+    "download": "Descargar ZIP",
+    "sha": "sha256 {hash}",
+    "no_download": "No hay descarga: el artefacto no pasó el control de integridad.",
+    "status": {
+      "GENERATED": "generado",
+      "VALIDATED": "validado",
+      "EXECUTED": "ejecutado",
+      "TESTED": "probado",
+      "VERIFIED": "verificado",
+      "PARTIAL": "parcial",
+      "FAILED": "fallido"
+    }
+  },
+  "phase_status": {
+    "ok": "ok",
+    "failed": "falló",
+    "limited": "limitada",
+    "skipped": "omitida"
+  },
+  "integrity": {
+    "fits_cap": "cabe en el límite de tamaño",
+    "reopens": "el ZIP se vuelve a abrir",
+    "crc_ok": "todos los CRC son correctos",
+    "single_root": "una sola carpeta raíz",
+    "no_path_escapes": "ninguna ruta se escapa de la raíz",
+    "no_symlinks": "sin enlaces simbólicos",
+    "no_junk_or_secret_names": "sin nombres basura ni de secretos",
+    "no_missing_files": "no falta ningún archivo",
+    "no_extra_files": "no sobra ningún archivo",
+    "extracts": "se extrae sin errores",
+    "hashes_match": "cada hash coincide con el manifiesto",
+    "no_secret_content": "ningún secreto en el contenido",
+    "embedded_manifest_matches": "el manifiesto embebido coincide",
+    "builds": "el paquete se construye"
+  },
+  "chain": {
+    "title": "Backend Agent on-chain",
+    "note": {
+      "verified": "La cadena confirma el vínculo: {call} devuelve esta misma wallet. No es lo que Mirag dice de sí mismo, es lo que responde el contrato.",
+      "unverified": "Hay un agent ID guardado, pero la cadena no confirma el vínculo: {reason}",
+      "no_reason": "sin motivo",
+      "unregistered": "La wallet existe, pero el agente todavía no está registrado en el 8004."
+    },
+    "balance": "SALDO",
+    "balance_detail": "XLM · {network}",
+    "agent_id": "AGENT ID",
+    "agent_id_detail": "Stellar 8004",
+    "last_payment": "ÚLTIMO PAGO",
+    "show": "Ver la identidad",
+    "rows": {
+      "wallet": "wallet",
+      "onchain_wallet": "wallet en la cadena",
+      "registry": "identity registry",
+      "registration_tx": "tx de registro",
+      "wallet_tx": "tx de wallet",
+      "last_payment": "último pago"
+    }
+  }
+}

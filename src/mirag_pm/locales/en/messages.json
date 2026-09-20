@@ -1,0 +1,461 @@
+{
+  "llm": {
+    "language_directive": "Write every piece of prose meant for the user in English."
+  },
+  "features": {
+    "reason": {
+      "not_implemented": "not implemented: there is no code behind '{stage}'",
+      "experimental": "experimental: '{stage}' exists and is tested, but it is not on the production path",
+      "experimental_forced_on": "EXPERIMENTAL, switched on by hand ({var}=on): '{stage}' is not on the production path",
+      "forced_on": "switched on by hand ({var}=on)",
+      "core_always_on": "core stage: always on",
+      "forced_off": "switched off by hand ({var}=off)",
+      "off_by_default": "off by default",
+      "unreadable_measurement": "the measurement could not be read: it stays off",
+      "not_measured": "not measured: a stage nobody measured is born off",
+      "below_threshold": "measured: {delta} MRR, below the {threshold} threshold",
+      "not_worth_cost": "measured: {delta} MRR but it costs {cost}: not worth it",
+      "measured_gain": "measured: {delta} MRR for {cost} of cost"
+    }
+  },
+  "retrieval": {
+    "filter": {
+      "none": "no filter: the whole corpus is searched",
+      "no_plan": "no plan: nothing is narrowed",
+      "applied": "{detail} → {kept} of {total} chunks",
+      "empty": "the filter ({detail}) left no chunk: the whole corpus is searched",
+      "too_few": "the filter ({detail}) left only {kept} chunks, too few: the whole corpus is searched",
+      "part": {
+        "boxes": "domains {boxes}",
+        "excluding": "excluding {boxes}",
+        "technologies": "technologies {items}",
+        "types": "type {items}"
+      }
+    },
+    "stage": {
+      "bm25": "method {method}",
+      "vector_backend": "backend {backend}",
+      "vector_failed": "failed, continuing with BM25: {error}",
+      "rrf": "RRF of bm25({lexical}) + vector({vector})",
+      "rrf_single": "bm25 only: there is no second signal to fuse",
+      "reranker": "local heuristic over {candidates} candidates",
+      "reranker_failed": "failed, the RRF order is kept: {error}"
+    }
+  },
+  "plan": {
+    "summary": {
+      "boxes": "domains {boxes}",
+      "technologies": "technologies: {items}",
+      "concepts": "{count} concepts",
+      "needs": "needs {items}",
+      "unbounded": "unbounded"
+    },
+    "need": {
+      "project": "project",
+      "code": "an artifact",
+      "graph": "graph",
+      "symbols": "symbols"
+    },
+    "origin": {
+      "unknown": "unknown origin",
+      "disabled": "no plan (RETRIEVAL_PLAN=off)",
+      "empty": "empty",
+      "deduced": "deduced from the request (0 calls)",
+      "no_model_answer": "no model answer → deduced plan",
+      "model_dict": "dict from the model",
+      "json_text": "JSON in the text",
+      "json_block": "fenced JSON block",
+      "json_in_prose": "JSON wrapped in prose",
+      "json_repaired": "truncated JSON, repaired",
+      "legacy_boxes": "legacy DOMAINS: format",
+      "not_understood": "the answer was not understood → deduced plan",
+      "json_without_plan_fields": "JSON without plan fields → deduced plan"
+    },
+    "origin_note": {
+      "no_boxes": "no domains: the deduced ones are used"
+    }
+  },
+  "sufficiency": {
+    "grade": {
+      "covered": "covered",
+      "mentioned": "mentioned",
+      "absent": "absent",
+      "not_evaluated": "not evaluated"
+    },
+    "reason": {
+      "no_terms": "the query has no distinctive terms to judge",
+      "nothing_retrieved": "the search returned nothing",
+      "absent": "{terms} does not appear in the corpus",
+      "mentioned": "{terms} only appears in passing: no section or card develops it",
+      "all_common": "every term is common in the corpus: nothing rare could be missing",
+      "covered": "the {count} discriminating terms have their own section or card"
+    },
+    "warning": {
+      "absent": "This knowledge base does not cover {terms}: it does not appear in any of its {boxes} domains. Saying so is a correct answer — what follows is not grounded in the documents and must not be presented as if it were.",
+      "mentioned": "The corpus MENTIONS {terms} but does not develop it: there is no section or card about it. What was retrieved talks about neighbouring topics, not about what you asked."
+    }
+  },
+  "graph": {
+    "how": {
+      "reciprocal": "cites the origin box back",
+      "next_in_box": "no link back: next chunk of the box"
+    },
+    "weight": "{count} chunks of {origin} cite it",
+    "hops": "{count} hops"
+  },
+  "search": {
+    "no_results": "Nothing in the documents matches. That is an answer: say the knowledge base does not cover it, rather than filling the gap.",
+    "none": "none",
+    "unknown_box": "That box does not exist. Use the name or the number of one of these:\n  {boxes}",
+    "related": "[{box}]\nreferences: {outgoing}\nreferenced by: {incoming}"
+  },
+  "execution": {
+    "header": {
+      "passed": "TESTS PASSED · {passed} of {total} markers",
+      "failed_exit": "FAILED (exit {code})",
+      "failed_markers": "FAILED: {failed} of {total} markers failed",
+      "failed_syntax": "FAILED: syntax of {detail}",
+      "no_evidence": "NO EVIDENCE: the command finished without errors but printed no TEST:<id>:PASS marker, so nobody knows what was tested",
+      "not_executed": "NOT EXECUTED: {reason}"
+    }
+  },
+  "evidence": {
+    "status": {
+      "verified": "verified",
+      "verified_in_simulation": "only in simulation",
+      "refuted": "refuted",
+      "unverified": "unverified"
+    }
+  },
+  "obligation": {
+    "status": {
+      "covered": "covered",
+      "declared": "declared",
+      "not_covered": "not covered",
+      "not_verifiable": "not verifiable"
+    },
+    "label": {
+      "covered": "VERIFIED · proved by the execution",
+      "declared": "NOT VERIFIED · the model addressed it, nothing proved it",
+      "not_covered": "RECOVERED · retrieved, unrelated to the delivery",
+      "not_verifiable": "RECOVERED · cannot be crossed"
+    }
+  },
+  "claims": {
+    "contradicted": {
+      "title": "CLAIM CONTRADICTED BY THE EVIDENCE",
+      "body": "The model claims that the tests passed, but the execution marked **{count} as FAIL**: {ids}."
+    },
+    "not_executed": {
+      "title": "CLAIM NOT BACKED BY EVIDENCE",
+      "body": "The model claims that the tests passed, but **the command never ran**: {header}"
+    },
+    "no_markers": {
+      "title": "CLAIM NOT BACKED BY EVIDENCE",
+      "body": "The model claims that the tests passed, but the execution produced no verifiable marker for those tests. An `exit 0` proves the command did not crash, not that it tested anything. To count, each test must print `TEST:<id>:PASS`."
+    },
+    "nothing_ran": {
+      "title": "CLAIM NOT BACKED BY EVIDENCE",
+      "body": "The model claims that the tests passed, but nothing was executed: there is no run to back it. An `exit 0` proves the command did not crash, not that it tested anything. To count, each test must print `TEST:<id>:PASS`."
+    },
+    "no_property_proved": {
+      "title": "NO PROPERTY PROVED",
+      "body": "The model declared **{count} properties** to prove and none of their `test_id` appeared in the execution output."
+    }
+  },
+  "cert": {
+    "structure": {
+      "ok": "{files} files, {directories} directories"
+    },
+    "problem": {
+      "no_files": "the project has no files",
+      "no_tests": "there is no test file",
+      "no_code": "there is no code file",
+      "missing_init": "{package}/ has no __init__.py"
+    },
+    "syntax": {
+      "ok": "every file compiles"
+    },
+    "imports": {
+      "broken": "{count} broken imports",
+      "limited": "{count} dependencies not installed here",
+      "ok": "the import graph resolves entirely"
+    },
+    "repair": {
+      "imports": "{count} files touched because of broken imports",
+      "tests": "{count} files touched because of failing tests"
+    },
+    "execution": {
+      "limited": "it does not run here: {missing} is missing",
+      "disabled": "not run: execution is switched off (MIRAG_EXECUTION=off). The tests are delivered for the QA agent"
+    },
+    "documented": {
+      "fails": "`{command}` fails: {header}",
+      "ok": "`{command}` runs without errors"
+    },
+    "crud": {
+      "skipped": "the project does not expose create_server(): there is no API to exercise"
+    },
+    "crud_risk": "the {operation} operation does not really work",
+    "crud_property": "{operation} answers over HTTP",
+    "reason": {
+      "structure": "incomplete structure: {problem}",
+      "syntax": "it does not compile: {detail}",
+      "broken_imports": "{count} broken imports remain: {detail}",
+      "validated": "the code compiles and its import graph resolves, but it could not run: {missing} is not installed on this machine. The project may be fine; here there is no evidence that it is."
+    }
+  },
+  "derive": {
+    "structure": "the project structure is incomplete",
+    "syntax": "there are files that do not compile",
+    "broken_imports": "{count} broken internal imports remain",
+    "validated_missing_dependency": "it compiles and resolves, but an external dependency is missing here",
+    "executed_no_markers": "the test command ran and printed not a single marker: that is not passing, it means nobody knows what was tested",
+    "nothing_ran": "there are files and nothing was ever executed",
+    "markers_failed": "{failed} of {total} markers in FAIL",
+    "crud_incomplete": "the tests pass, but the CRUD could not be exercised entirely: {missing} operations are missing",
+    "partial_limits": "what can run passes; part of the project cannot be tested here",
+    "no_pass": "there was not one marker in PASS",
+    "silent_phase": "the '{phase}' phase ran and produced not one marker: there is no way to know what it tested",
+    "phase_failed": "the '{phase}' phase failed",
+    "verified": "the {count} markers pass",
+    "verified_crud_suffix": ", including the full CRUD over HTTP"
+  },
+  "generation": {
+    "no_plan": "the model did not return a usable plan",
+    "tests_added": "the plan had no tests: {count} files were added",
+    "specified": "{name} · {framework} · {count} files planned",
+    "call_cap": "cap of {cap} calls reached: this group was not generated",
+    "group_files": "{count} files",
+    "group_rejected": "{count} rejected",
+    "problem": {
+      "no_tests": "the plan has no file in tests/: without tests there is nothing to verify",
+      "no_entrypoint": "the plan marks no entrypoint",
+      "bad_interpreter": "the test command starts with '{first}' and here there is only {available}"
+    }
+  },
+  "phase": {
+    "structure": "Structure",
+    "syntax": "Syntax",
+    "imports": "Imports",
+    "repair": "Repair",
+    "execution": "Execution",
+    "tests": "Tests",
+    "tests_after_repair": "Tests (after repair)",
+    "documented_command": "Documented command",
+    "crud": "CRUD over HTTP"
+  },
+  "project": {
+    "status": {
+      "GENERATED": "GENERATED",
+      "VALIDATED": "VALIDATED",
+      "EXECUTED": "EXECUTED",
+      "TESTED": "TESTED",
+      "VERIFIED": "VERIFIED",
+      "PARTIAL": "PARTIAL",
+      "FAILED": "FAILED"
+    }
+  },
+  "pipeline": {
+    "state": {
+      "answered": "answered without searching and without calling the model",
+      "not_about_mirag": "it is not a question about Mirag itself"
+    },
+    "retrieval": {
+      "stage": "{candidates} candidates · {detail}"
+    },
+    "symbols": {
+      "found": "{found} symbols out of {total} indexed",
+      "not_needed": "the plan does not ask to search the code"
+    },
+    "graph": {
+      "found": "{count} chunks through relationships",
+      "not_needed": "the plan needs no relationships"
+    },
+    "context": {
+      "summary": "~{tokens} tokens · {included} chunks",
+      "discarded": "{count} discarded"
+    },
+    "model": {
+      "offline": "offline lock: nobody was called",
+      "no_model_answer": "[no model] {error}",
+      "asked_code": "asked to deliver code",
+      "answered_text": "answered with text"
+    },
+    "delivery": {
+      "summary": "{count} files · {command}",
+      "no_call": "the model did not call deliver_implementation",
+      "invalid_json": "the arguments are not valid JSON (usually max_tokens: ask for a smaller implementation)",
+      "no_files": "the delivery brings no files"
+    },
+    "evidence": {
+      "none": "no properties"
+    },
+    "anti_patterns": {
+      "none": "the corpus brought no anti-patterns"
+    },
+    "persistence": {
+      "saved": "saved in {folder}",
+      "failed": "could not be saved: {error}. The answer and the evidence are still valid."
+    },
+    "project": {
+      "failed": "a project could not be assembled",
+      "failed_answer": "The project could not be generated.",
+      "summary": "{files} files · {directories} directories · {lines} lines"
+    },
+    "packaging": {
+      "ok": "{name} · {bytes} bytes · {checks} integrity checks",
+      "integrity_error": "INTEGRITY ERROR: {reason}"
+    },
+    "artifact": {
+      "ready": "ready to download · {id}",
+      "on_disk": "copy on disk",
+      "memory_only": "memory only",
+      "failed": "could not be registered: {error}"
+    }
+  },
+  "panel": {
+    "delivered_not_executed": "code was delivered and never executed"
+  },
+  "cost": {
+    "simulated": "SIMULATED · $0",
+    "no_model": "NO MODEL · $0",
+    "free": "FREE · $0 · {model}"
+  },
+  "answer": {
+    "what_was_done": "What was done",
+    "execution": {
+      "not_run": "> The code was delivered and **was not executed**: there is no evidence that it works.",
+      "repaired": "It failed, was repaired once and was run again. ",
+      "passed": "> {attempts}**{header}.** Green means *it ran and passed*, not *it is correct*: it proves what those {count} tests cover.",
+      "failed": "> {attempts}**{header}.** The code ran and failed.",
+      "no_evidence": "> {attempts}**The command finished without errors and printed not a single marker.** That is not passing: it means nobody knows what was tested."
+    },
+    "evidence": {
+      "title": "Evidence",
+      "intro": "The status is decided by the **execution**, not by what the model says.",
+      "col_status": "Status",
+      "col_risk": "Risk",
+      "col_property": "Proved property",
+      "col_test": "Test"
+    },
+    "obligations": {
+      "title": "Anti-patterns the corpus brought for this query",
+      "intro": "The search returns a fixed number of anti-patterns per query, **relevant or not** - no measurement says which really apply here. So this is a record, not a verdict: the status comes from crossing what the model declared with what the **execution** proved.",
+      "col_status": "Status",
+      "col_anti_pattern": "Anti-pattern",
+      "col_avoid": "What had to be avoided",
+      "unproved": "**{count} of {total} not proved.** It does not mean the code is wrong nor that they had to be covered: it means exactly that the execution gave no evidence about them, and in several cases that the anti-pattern probably did not apply."
+    },
+    "simulated_demo": "> ⚠️ **SIMULATED · demo `{demo}`** (offline lock). The model's decision comes from a fixed script. What was retrieved, executed and verified is real; what the model *decided* is not.",
+    "no_model": "> ⛔ **NO MODEL** (offline lock) and this question is not one of the prepared demos. The plan, the retrieval and the context above are real; the answer does not exist and is not invented.",
+    "project": {
+      "totals": "**{files} files** in {directories} directories, {lines} lines.",
+      "assumptions": "What was decided without being told:",
+      "markers": "`{passed}` of `{total}` markers in PASS. Green means *it ran and passed*, not *it is correct*.",
+      "col_phase": "Phase",
+      "col_status": "Status",
+      "col_detail": "What happened",
+      "integrity_error": "> ⛔ **INTEGRITY ERROR** — {reason}\n> The ZIP is not delivered: it cannot be proved to be what was verified."
+    }
+  },
+  "chat": {
+    "shortcut": "Shortcut · 0 calls · 0 searches",
+    "shortcut_cost": "0 calls · 0 tokens · $0.0000",
+    "no_phases": "There were no phases.",
+    "unknown_mode": "The mode '{mode}' does not exist. The modes are: {modes}.",
+    "offline": {
+      "demo": "prepared demo «{demo}»: the model's decision comes from a fixed script",
+      "no_demo": "this question is not a prepared demo: there will be no model answer, and none is invented"
+    }
+  },
+  "architect": {
+    "phase": {
+      "understand": "Understand",
+      "associate": "Associate",
+      "decide": "Decide",
+      "design": "Design",
+      "validate": "Validate",
+      "implement": "Implement",
+      "review": "Review",
+      "verify": "Verify",
+      "fix": "Fix"
+    },
+    "attempt": "attempt {number}",
+    "first_phase": "the first phase",
+    "error_in": "error in '{phase}': {error}",
+    "nothing_ran": "no phase was executed",
+    "fix": {
+      "non_zero_exit": "non-zero exit code",
+      "not_executed": "it never ran: {header}",
+      "no_markers": "it ran but without markers: nothing is proved",
+      "declared": "the phase declared a proved suspicion (even though the test exited with 0)"
+    }
+  },
+  "state": {
+    "footer": "(from the project state: no search and no model call)",
+    "title": {
+      "model": "Model",
+      "modes": "Modes",
+      "tools": "Available tools",
+      "corpus_size": "Corpus size",
+      "boxes": "The boxes",
+      "output_location": "Where the code goes",
+      "structure": "What it is made of"
+    },
+    "model": "`{model}`, through OpenRouter. It is changed with the MIRAG_MODEL environment variable.",
+    "mode": {
+      "pipeline": "PRODUCTION · plan, retrieval over 3 indices, context, generation, verification and evidence · 1-2 calls",
+      "architect": "EXPERIMENTAL · chained design phases. Its phases do NOT have the pipeline's level of verification · minutes"
+    },
+    "corpus_size": "{boxes} boxes · {chunks} retrievable chunks · {cards} cards · {anti_patterns} anti-patterns\n\n~{tokens} tokens in total.",
+    "output_location": "In `{folder}`, with a `HOW_TO_RUN.txt`.",
+    "structure": {
+      "entry": "Where to start",
+      "server": "the server and the page; an allow-list of routes, loopback only",
+      "pipeline": "**the production path**: plan → retrieval → context → model → verification",
+      "retrieval": "the single source of retrieval and context",
+      "verdict": "decides the verdict of an execution; nobody else decides it",
+      "obligations": "crosses the retrieved anti-patterns with the evidence",
+      "features": "the switches and the measurement gate",
+      "demos": "the canonical demos",
+      "rest": "**The rest**: {modules} modules in total · {classes} classes · {functions} functions · {tests} tests.",
+      "dependencies": "The core is standard library only: 0 external dependencies. The optional `integrations/blockchain` layer declares `stellar-sdk` as an extra."
+    }
+  },
+  "demo": {
+    "no_model": "There is no model answer: the offline lock is on (`MIRAG_OFFLINE=1`) and this question is not one of the prepared demos.\n\n**What you see above is not simulated**: the plan, the retrieval over the three indices, the context that would have been sent and the sufficiency verdict are real. The only thing missing is the model's decision, and rather than inventing it, it is not given.\n\nFor a real answer: `MIRAG_OFFLINE=0`. To see the whole machine without paying, try one of the demos.",
+    "script": {
+      "conceptual_answer": "A PostgreSQL index is a structure that speeds up lookups at the cost of making writes more expensive.",
+      "decisions": "A custom exception instead of letting ZeroDivisionError escape, so internal traces never leak to the client (box 03).",
+      "risk_division": "division by zero blows up without control",
+      "risk_operation": "an unknown operation returns something instead of failing",
+      "risk_arithmetic": "the four basic operations compute wrongly",
+      "uncovered_precision": "Very large numbers and floating point precision",
+      "uncovered_types": "Inputs that are not numbers"
+    },
+    "canonical": {
+      "knowledge": {
+        "title": "Query the corpus",
+        "question": "What is a PostgreSQL index and when does it stop helping?",
+        "demonstrates": "the corpus answers: what was retrieved, which context was built, what was answered"
+      },
+      "construction": {
+        "title": "Build and verify",
+        "question": "Create calculator.py with a function calculate(a, b, operation) and its tests with TEST:<id>:PASS markers, covering the four operations.",
+        "demonstrates": "plan, retrieval, code, EXECUTION, tests and evidence"
+      },
+      "abstention": {
+        "title": "Ask what it does not know",
+        "question": "How do I implement Raft consensus with linearizability guarantees?",
+        "demonstrates": "that Mirag says it does not know instead of inventing"
+      },
+      "project": {
+        "title": "Generate a project",
+        "question": "Create a REST API of books with full CRUD. Architecture by domain: separate router, service, repository, schemas and models. Add tests and leave the project ready to download.",
+        "demonstrates": "from one sentence to a 14-file project, executed, verified and packaged in a ZIP you can unzip and run"
+      }
+    }
+  },
+  "_comment": "Copied from mirag's catalogue, which is the PIPELINE's vocabulary — retrieval, context, sufficiency, cost — and therefore framework rather than subject. 8 keys are overridden here because they name the wrong subject: plan.need.code, plan.origin.legacy_boxes, plan.origin_note.no_boxes, plan.summary.boxes, retrieval.filter.part.boxes, retrieval.filter.part.excluding, search.no_results, sufficiency.warning.absent. The rest of the differences from mirag are none: keeping the file complete is what stops an unreachable key printing its own name if the path ever changes."
+}

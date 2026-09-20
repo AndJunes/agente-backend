@@ -1,0 +1,23 @@
+{
+  "card_marker": "Card",
+  "fields": {
+    "when": "When",
+    "pattern": "Common practice",
+    "anti_pattern": "Limitations",
+    "limits": "Limitations",
+    "how_it_fails": "Disputed",
+    "decision": "Decision considerations",
+    "depends_on": "Related concepts",
+    "trade_off": "Decision considerations",
+    "related": "Related concepts"
+  },
+  "failure_title_prefixes": ["Limitations", "Known limitations", "Limitation"],
+  "sources_title": "Sources",
+  "syllabus_marker": "Topics",
+  "labels": {
+    "fails_like": "what this does not establish",
+    "avoid": "NOT ESTABLISHED",
+    "prefer": "WHAT THE SOURCES DO SUPPORT",
+    "see_box": "(see the document)"
+  }
+}

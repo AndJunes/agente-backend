@@ -19,6 +19,7 @@ dev = ["ruff>=0.6", "mypy>=1.10"]
 
 [project.scripts]
 mirag = "mirag.cli:main"
+mirag-pm = "mirag_pm.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -29,6 +30,16 @@ mirag = [
     "knowledge/*/*.md",
     "resources/*.json",
     "web/*.html",
+]
+# The PM corpus is nested one level deeper than mirag's: its documents live in domain folders
+# (`06-requirements/prd.md`), not as numbered files in one directory, so the globs differ.
+mirag_pm = [
+    "locales/*/*.json",
+    "knowledge/*/*.md",
+    "knowledge/*/*/*.md",
+    "skills/*.md",
+    "skills/*/*.md",
+    "examples/*/*.md",
 ]
 
 [tool.ruff]
@@ -47,7 +58,7 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.11"
-files = ["src/mirag"]
+files = ["src/mirag", "src/mirag_pm"]
 ignore_missing_imports = true
 warn_unused_ignores = true
 no_implicit_optional = true

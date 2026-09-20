@@ -1,0 +1,408 @@
+{
+  "page": {
+    "title": "Mirag — see the flow",
+    "heading": "Mirag — see the flow",
+    "subtitle": "Ask a question and watch **what the agent does step by step** before it answers."
+  },
+  "language": {
+    "label": "Language",
+    "names": {
+      "en": "English",
+      "es": "Español"
+    }
+  },
+  "pieces": {
+    "model_title": "The model",
+    "model_text": "decides what to do",
+    "tools_title": "The tools",
+    "tools_text": "do the work",
+    "docs_title": "The documents",
+    "docs_text": "19 backend boxes"
+  },
+  "legend": {
+    "summary": "What each colour means",
+    "running": "the step is in progress right now.",
+    "completed": "something **really ran** and finished well. Green is used for nothing else.",
+    "warning": "it finished, but with caveats worth reading.",
+    "error": "it failed, and the real output of the failure is below.",
+    "unverified": "the model produced something but **nobody has checked it yet**. Generating code is not the same as proving it works.",
+    "simulated": "a prepared demo answered: the model's decision came from a fixed script. What was retrieved, run and verified is real.",
+    "no_model": "offline and no demo matches: there is no model answer, and none is invented."
+  },
+  "modes": {
+    "label": "Mode",
+    "experimental": "experimental",
+    "pipeline": {
+      "name": "Pipeline",
+      "description": "the production path: retrieves, generates, runs and verifies"
+    },
+    "architect": {
+      "name": "Architect",
+      "description": "8 design phases (~10 min). Its phases do not have the same level of verification as Pipeline."
+    },
+    "state": {
+      "name": "Self-knowledge"
+    }
+  },
+  "form": {
+    "placeholder": "Type your question...",
+    "ask": "Ask",
+    "question_label": "Your question"
+  },
+  "demos": {
+    "label": "Prepared demos",
+    "unavailable": "The prepared demos could not be loaded.",
+    "hints": {
+      "knowledge": "what was retrieved and why",
+      "construction": "generates, runs and tests",
+      "abstention": "says it does not know",
+      "project": "a whole one, with a ZIP"
+    }
+  },
+  "chips": {
+    "running": "running",
+    "completed": "completed",
+    "warning": "warning",
+    "error": "error",
+    "unverified": "not verified",
+    "skipped": "skipped",
+    "fallback": "fallback",
+    "insufficient": "insufficient evidence",
+    "simulated": "simulated",
+    "no_model": "no model",
+    "experimental": "experimental",
+    "onchain": "verified on-chain",
+    "not_onchain": "not verified on-chain",
+    "disabled": "disabled",
+    "layers": "4 layers"
+  },
+  "step_status": {
+    "executed": "executed",
+    "skipped": "skipped",
+    "fallback": "fallback",
+    "error": "error",
+    "warning": "warning",
+    "simulated": "simulated",
+    "no_model": "no model"
+  },
+  "sources": {
+    "execution": "execution evidence",
+    "model": "the model says so",
+    "corpus": "taken from the corpus"
+  },
+  "steps": {
+    "offline_lock": "Offline lock",
+    "project_state": "Project state",
+    "retrieval_plan": "Retrieval plan",
+    "filter": "Filter",
+    "bm25": "BM25",
+    "vector": "Vector",
+    "rrf": "RRF fusion",
+    "reranker": "Reranker",
+    "fallback": "Fallback",
+    "retrieval": "Retrieval",
+    "symbols": "Symbols",
+    "graph": "Graph",
+    "sufficiency": "Sufficiency",
+    "context": "Context",
+    "model": "Model",
+    "delivery": "Delivery",
+    "verification": "Verification",
+    "repair": "Repair",
+    "verification_after_repair": "Verification after the repair",
+    "evidence": "Evidence",
+    "anti_patterns": "Anti-patterns",
+    "persistence": "Persistence",
+    "specification": "Specification",
+    "plan": "Plan",
+    "generation": "Generation",
+    "project": "Project",
+    "structure": "Structure",
+    "syntax": "Syntax",
+    "imports": "Imports",
+    "execution": "Execution",
+    "tests": "Tests",
+    "documented_command": "Documented command",
+    "tests_after_repair": "Tests after the repair",
+    "crud": "CRUD over HTTP",
+    "packaging": "Packaging",
+    "artifact": "Artifact"
+  },
+  "suffixes": {
+    "knowledge": "knowledge",
+    "anti_patterns": "anti-patterns",
+    "failures": "failures",
+    "core": "core",
+    "domain": "domain",
+    "tests": "tests",
+    "docs": "docs"
+  },
+  "retrieval": {
+    "chunks": {
+      "one": "**{count}** chunk retrieved",
+      "other": "**{count}** chunks retrieved"
+    },
+    "no_reason": "no reason given"
+  },
+  "generation": {
+    "title": "Project generated"
+  },
+  "cards": {
+    "you_asked": "You asked",
+    "thinking": "Thinking…",
+    "working": "Working… {elapsed}",
+    "phase": "Phase",
+    "thought": "What the agent decided",
+    "final": "Final answer",
+    "details": "View details",
+    "no_tools": "It needed no tools: it answered from memory.",
+    "connection_lost": "The connection was cut: {error}",
+    "request_failed": "The server rejected the question ({status} · {code}): {message}",
+    "empty_answer": "The stream ended without an answer.",
+    "go_to_code": "Go to the code",
+    "code_below": "The full code is not repeated here: it is below, in its own section, with tabs and download."
+  },
+  "time": {
+    "seconds": "{s}s",
+    "minutes": "{m}m {s}s"
+  },
+  "units": {
+    "seconds": "{n}s",
+    "ms": "{n} ms",
+    "bytes": "{n} bytes",
+    "kb": "{n} KB"
+  },
+  "tools": {
+    "run": {
+      "title": "Ran the tests",
+      "not_executed_title": "Nothing could be run",
+      "not_executed_note": "Without execution there is no evidence: whatever comes next is still a claim by the model, not a checked fact.",
+      "failed_markers": "**{passed} of {total}** tests passed, {failed} failed.",
+      "failed_exit": "The command ended with an error.",
+      "markers_failed": "**{failed} of {total}** markers failed",
+      "markers_failed_note": "The command exited without error, but the markers say otherwise. A test that prints FAIL and exits with 0 is a broken test: no CI would catch it.",
+      "passed": "**{passed} of {total}** tests ran and are green.",
+      "proven": {
+        "one": "Proven: that test passes. Not proven: everything that test does not check.",
+        "other": "Proven: those {count} tests pass. Not proven: everything those tests do not check."
+      },
+      "no_markers": "The command finished without error, but the output has no `TEST:<id>:PASS` markers: there is no way to count what was really tested.",
+      "no_output": "(no output)"
+    },
+    "search": {
+      "title": "Searched the documents",
+      "query": "searched {query}",
+      "empty": "no useful results",
+      "tokens": "{tokens} tokens retrieved"
+    },
+    "other": {
+      "title": "Used a tool",
+      "returned": "returned: {value}",
+      "arguments": "arguments:"
+    }
+  },
+  "code": {
+    "label": "code",
+    "copy": "copy",
+    "copied": "copied!"
+  },
+  "deliverable": {
+    "title": {
+      "not_executed": "Code delivered — nothing was run",
+      "no_evidence": "It ran, but with no evidence to count",
+      "failed": "Code delivered — the tests did NOT pass",
+      "simulated": "Green tests, but over a simulation",
+      "passed": "Tests ran, and they passed",
+      "unknown": "Code delivered, with no execution evidence"
+    },
+    "note": {
+      "not_executed": "The proposed command never got to run: {header}. The only thing that happened is that the model wrote this code; **nobody has checked it**.",
+      "no_evidence": "The command finished without error and there are no test markers in the output: there is no way to know what was tested.",
+      "failed": "You get it anyway so you can read it, but the execution does not back it.",
+      "simulated": "**{technologies}** is replaced by an in-memory simulation: the tests prove the logic, **not** the real guarantees (constraints, isolation, locking).",
+      "passed_markers": {
+        "one": "**{count} marker** in the output, and it is PASS.",
+        "other": "**{count} markers** in the output, all PASS."
+      },
+      "passed": "Green means the command really ran and its tests passed — not that the code is correct: it proves what those tests cover.",
+      "unknown": "No step on this page ran anything: nobody has checked this code."
+    },
+    "files": {
+      "one": "{count} file",
+      "other": "{count} files"
+    },
+    "lines": {
+      "one": "{count} line",
+      "other": "{count} lines"
+    },
+    "run_with": "run it with {command}",
+    "no_command": "no command was proposed",
+    "download_file": "Download this file",
+    "download_all": "Download all",
+    "saved_in": "already saved in {folder}",
+    "no_files": "The deliverable carries no files."
+  },
+  "evidence": {
+    "title": "Evidence",
+    "claim": {
+      "title": "MODEL CLAIM",
+      "note": "What the model **said** it would cover. Not a fact yet.",
+      "empty": "It declared no property.",
+      "uncovered": "And it admitted not covering:"
+    },
+    "observed": {
+      "title": "OBSERVED",
+      "note": "What Mirag **saw** when running. Nobody gives an opinion.",
+      "counts": "{passed} passed · {failed} failed",
+      "no_markers": "The execution printed no marker.",
+      "truncated": "The output was truncated; the markers were kept.",
+      "nothing": "Nothing ran: there is nothing observed."
+    },
+    "verified": {
+      "title": "VERIFIED",
+      "note": "Declared **and** proven by a real marker.",
+      "empty": "Nothing was proven.",
+      "simulated": "Proven against a **simulation**, which is not the same thing:"
+    },
+    "not_verified": {
+      "title": "NOT VERIFIED",
+      "note": "Declared and **not** proven. It does not mean it is wrong: it means nobody tested it.",
+      "empty": "Nothing was left unproven."
+    }
+  },
+  "property_status": {
+    "verified": "verified",
+    "verified_in_simulation": "verified in simulation",
+    "refuted": "refuted",
+    "unverified": "not verified"
+  },
+  "execution_status": {
+    "passed": "passed",
+    "failed": "failed",
+    "no_evidence": "no evidence",
+    "not_executed": "not executed"
+  },
+  "claim_status": {
+    "supported": "supported",
+    "unsupported": "unsupported",
+    "refuted": "refuted",
+    "not_executed": "not executed",
+    "no_claim": "no claim"
+  },
+  "timeline": {
+    "title": "What happened, in order",
+    "show": "View the trace"
+  },
+  "cost": {
+    "demo": "the model's decision came from the script of the demo {demo}. What was retrieved, run and verified did happen.",
+    "no_model": "there was no model decision. What was retrieved and the context are real.",
+    "calls": {
+      "one": "{count} call",
+      "other": "{count} calls"
+    },
+    "tokens": {
+      "one": "{count} token",
+      "other": "{count} tokens"
+    }
+  },
+  "warnings": {
+    "skipped": "The stages marked **skipped** did not run, and each one says why: most of them because nobody has measured yet that they help. That is deliberate — an unmeasured stage is born switched off.",
+    "green": "Green here means **it ran and passed**, not **it is correct**. Passing some tests only proves what those tests cover: a *sequential* idempotency test passes even if the code has a race condition.",
+    "architect": "**Experimental** mode: its phases do not go through the evidence discipline of the pipeline. What you see here is **what the model says**, not execution evidence.",
+    "claim": "**The answer above carries a warning.** Mirag compared what the model claims with the markers the real execution produced, and they do not match ({status}). The model's text is left whole so you can judge it yourself.",
+    "label_not_run": "**Careful with what you are about to read below.** The deliverable is labelled *passed*, but the executor observed {status} ({header}). A label is not an execution: nothing was proven."
+  },
+  "project": {
+    "title": {
+      "integrity_error": "ARTIFACT INTEGRITY ERROR",
+      "ready": "Project ready to download",
+      "ready_simulated": "Project ready — simulated decision",
+      "incomplete": "Project generated — the verification is not complete"
+    },
+    "note": {
+      "integrity_error": "There is no way to prove that the ZIP is the project that was verified, so it is not delivered. {reason}",
+      "ready": "Its tests really ran and passed. Green means **it ran and passed**, not **it is correct**: it proves what those tests cover.",
+      "simulated": "**The code was written by a fixed script, not by the model**: what was run, verified and packaged is real, but this does not show that the model generates a project like this.",
+      "incomplete": "The ZIP is exactly what was generated, and that much can be stated. What cannot be said is that it works."
+    },
+    "figures": {
+      "files": "FILES",
+      "files_detail": "in {directories} directories · {lines} lines",
+      "markers": "MARKERS",
+      "markers_detail": "PASS, from a real execution",
+      "integrity": "INTEGRITY",
+      "integrity_ok": "the ZIP is what was verified"
+    },
+    "tree": "The project tree",
+    "tree_empty": "The manifest lists no files.",
+    "file_lines": {
+      "one": "{count} line",
+      "other": "{count} lines"
+    },
+    "checks": {
+      "one": "The {count} integrity check",
+      "other": "The {count} integrity checks"
+    },
+    "phases": {
+      "one": "The {count} certification phase",
+      "other": "The {count} certification phases"
+    },
+    "download": "Download ZIP",
+    "sha": "sha256 {hash}",
+    "no_download": "No download: the artifact did not pass the integrity check.",
+    "status": {
+      "GENERATED": "generated",
+      "VALIDATED": "validated",
+      "EXECUTED": "executed",
+      "TESTED": "tested",
+      "VERIFIED": "verified",
+      "PARTIAL": "partial",
+      "FAILED": "failed"
+    }
+  },
+  "phase_status": {
+    "ok": "ok",
+    "failed": "failed",
+    "limited": "limited",
+    "skipped": "skipped"
+  },
+  "integrity": {
+    "fits_cap": "fits within the size cap",
+    "reopens": "the ZIP reopens",
+    "crc_ok": "every CRC is correct",
+    "single_root": "a single root folder",
+    "no_path_escapes": "no path escapes the root",
+    "no_symlinks": "no symbolic links",
+    "no_junk_or_secret_names": "no junk or secret file names",
+    "no_missing_files": "no file is missing",
+    "no_extra_files": "no extra files",
+    "extracts": "it extracts cleanly",
+    "hashes_match": "every hash matches the manifest",
+    "no_secret_content": "no secrets in the contents",
+    "embedded_manifest_matches": "the embedded manifest matches",
+    "builds": "the package builds"
+  },
+  "chain": {
+    "title": "Backend Agent on-chain",
+    "note": {
+      "verified": "The chain confirms the link: {call} returns this same wallet. It is not what Mirag says about itself, it is what the contract answers.",
+      "unverified": "There is a stored agent ID, but the chain does not confirm the link: {reason}",
+      "no_reason": "no reason given",
+      "unregistered": "The wallet exists, but the agent is not registered in 8004 yet."
+    },
+    "balance": "BALANCE",
+    "balance_detail": "XLM · {network}",
+    "agent_id": "AGENT ID",
+    "agent_id_detail": "Stellar 8004",
+    "last_payment": "LAST PAYMENT",
+    "show": "View the identity",
+    "rows": {
+      "wallet": "wallet",
+      "onchain_wallet": "wallet on the chain",
+      "registry": "identity registry",
+      "registration_tx": "registration tx",
+      "wallet_tx": "wallet tx",
+      "last_payment": "last payment"
+    }
+  }
+}
