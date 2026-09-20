@@ -24,6 +24,8 @@ from mirag.container import Container
 from mirag.core.errors import OfflineModeError
 from mirag.llm.messages import first_tool_arguments, function_tool
 
+from mirag_pm.audit import CitationAuditor
+
 Operation = Callable[[Mapping[str, Any], str], dict[str, Any]]
 
 MAX_IDEA_CHARS = 8_000
@@ -126,8 +128,9 @@ def questionnaire_tool() -> dict[str, Any]:
 class PmWorkflow:
     """The three operations, over the PM container."""
 
-    def __init__(self, container: Container) -> None:
+    def __init__(self, container: Container, auditor: CitationAuditor | None = None) -> None:
         self._container = container
+        self._auditor = auditor
 
     def operations(self) -> dict[str, Operation]:
         return {"analyze": self.analyze, "plan": self.plan, "revise": self.revise}
@@ -147,7 +150,10 @@ class PmWorkflow:
             f"{context}\n\n=== THE IDEA ===\n{idea}",
             [questionnaire_tool()],
         )
-        result: dict[str, Any] = {"summary": message.get("content") or ""}
+        summary = message.get("content") or ""
+        if findings := self._audit(summary):
+            summary = f"{summary}\n\n" + "\n".join(f"⚠️ {f}" for f in findings)
+        result: dict[str, Any] = {"summary": summary}
         if arguments := first_tool_arguments(message):
             result["questionnaire"] = {
                 "reason": str(arguments.get("reason") or ""),
@@ -248,12 +254,28 @@ class PmWorkflow:
                       for f in _items(arguments.get("flows"))],
             "constraints": [{"kind": _kind(c.get("kind")), "statement": str(c.get("statement") or "")}
                             for c in _items(arguments.get("constraints"))],
-            "openQuestions": [str(q) for q in _list(arguments.get("openQuestions"))] or [
+            "openQuestions": _open_questions(arguments, self._audit) or [
                 "This plan declared nothing open, which is almost never true. Treat that as a "
                 "gap in the plan rather than as completeness."
             ],
             "status": "draft",
         }
+
+
+    def _audit(self, *texts: str) -> list[str]:
+        return [str(f) for f in self._auditor.audit(*texts)] if self._auditor else []
+
+
+def _open_questions(arguments: Mapping[str, Any], audit: Any) -> list[str]:
+    """What the plan does not settle, plus anything the audit found.
+
+    The findings go here rather than into a field of their own because this is the one place
+    the interface already renders prominently, in the colour it uses for a warning. A field
+    the front end does not know about is a warning nobody sees.
+    """
+    declared = [str(q) for q in _list(arguments.get("openQuestions"))]
+    prose = " ".join([str(arguments.get("purpose") or ""), *declared])
+    return declared + audit(prose)
 
 
 # ── reading what the model sent ──────────────────────────────────────────────

@@ -18,6 +18,7 @@ from mirag.core.settings import Settings
 from mirag.retrieval.engine import RetrievalEngine
 from mirag.tools.registry import ToolRegistry
 
+from mirag_pm.audit import CitationAuditor
 from mirag_pm.corpus import PmCorpus, lookup_tables
 from mirag_pm.paths import DOCUMENTS_LOCALE, KNOWLEDGE_DIR, LOCALES_DIR, SKILLS_DIR
 from mirag_pm.prompts import SYSTEM_PROMPT
@@ -56,5 +57,6 @@ def build_pm_container(settings: Settings | None = None) -> Container:
     # Attached after construction because the workflow needs the finished container — its
     # engines, its gateways, its catalogue. `Container` is a mutable dataclass and `cli.py`
     # already relies on that.
-    container.operations = PmWorkflow(container).operations()
+    auditor = CitationAuditor(lookups.get("SOURCES.md", ""))
+    container.operations = PmWorkflow(container, auditor).operations()
     return container
