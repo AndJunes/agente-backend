@@ -38,6 +38,15 @@ jobs:
           PYTHONPATH: src
         run: python -m mirag demo all
 
+      # Spanish was never being checked. `demo all` defaults to MIRAG_LOCALE, which is `en`,
+      # so every run so far has covered one of the two corpora — and the front end asks in
+      # Spanish. The parity between the two is a stated invariant; nothing was enforcing it.
+      - name: The demo contracts, in Spanish
+        env:
+          MIRAG_OFFLINE: "1"
+          PYTHONPATH: src
+        run: python -m mirag demo all --locale es
+
       - name: No credential in what is versioned
         run: |
           # Cheap, and it covers the most expensive slip: a .env committed by mistake.

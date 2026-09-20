@@ -154,7 +154,15 @@ class Container:
 def build_container(settings: Settings | None = None, model_builder: ModelBuilder | None = None,
                     gains: GainsRepository | None = None) -> Container:
     settings = settings or Settings.from_env()
-    i18n = I18n(settings.default_locale)
+    # Only what is set is forwarded, so `I18n`'s own defaults stay the single definition of
+    # where the bundled corpus is. Passing them unconditionally would put that path in two
+    # places and invite the two to drift.
+    overrides = {name: value for name, value in (
+        ("knowledge_dir", settings.knowledge_dir),
+        ("locales_dir", settings.locales_dir),
+        ("supported", settings.supported_locales),
+    ) if value is not None}
+    i18n = I18n(settings.default_locale, **overrides)
     gate = FeatureGate(settings.env, gains or GainsRepository(FEATURE_GAINS_FILE))
     interpreters = InterpreterRegistry()
     runner = CodeRunner(interpreters, timeout_s=settings.code_timeout_s, enabled=settings.execution)
