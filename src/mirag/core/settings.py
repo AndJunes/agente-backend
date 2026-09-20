@@ -122,6 +122,15 @@ class Settings:
     supported_locales: tuple[str, ...] | None = None
     """Which locales this process serves. ``None`` means the bundled tuple."""
 
+    system_prompt: str = ""
+    """What the agent is told it is. Empty means the bundled backend prompt.
+
+    Read from ``MIRAG_SYSTEM_PROMPT``. It sits beside the corpus and the lexicon because the
+    three have to agree: a process reading product-management documents, classifying questions
+    with product-management vocabulary and then told it is a backend tutor would answer in the
+    wrong voice about the right material.
+    """
+
     env: Mapping[str, str] = field(default_factory=dict, repr=False, compare=False)
     """The environment the settings were read from; feature flags resolve against it."""
 
@@ -180,6 +189,7 @@ class Settings:
             knowledge_dir=Path(knowledge_dir) if knowledge_dir else None,
             locales_dir=Path(locales_dir) if locales_dir else None,
             supported_locales=locales or None,
+            system_prompt=(env.get("MIRAG_SYSTEM_PROMPT") or "").strip(),
             env=env,
         )
 

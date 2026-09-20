@@ -30,6 +30,7 @@ from mirag.observability.tracing import TraceWriter
 from mirag.offline.demos import DemoCatalog
 from mirag.paths import FEATURE_GAINS_FILE, WEB_DIR
 from mirag.pipeline.code_stage import CodeDeliveryStage
+from mirag.pipeline.prompts import SYSTEM_PROMPT
 from mirag.pipeline.delivery import OutputWriter
 from mirag.pipeline.knowledge_stage import KnowledgeStage
 from mirag.pipeline.orchestrator import QuestionPipeline
@@ -88,9 +89,18 @@ class Container:
     architect: PerLocale[ArchitectWorkflow] = field(init=False)
     page_path: Path = WEB_DIR / "index.html"
 
+    tools_builder: Callable[[RetrievalEngine, str], ToolRegistry] | None = None
+    """How this agent's tools are built. ``None`` means the backend's own set.
+
+    A tool set is part of what an agent IS — `builtin.py` says it outright: the description is
+    the routing signal, because the model chooses by reading it. An agent over a different
+    corpus needs descriptions in that corpus's terms, and needs some of these tools absent
+    rather than reworded."""
+
     def __post_init__(self) -> None:
-        self.tools = PerLocale(lambda locale: build_default_tools(
-            self.engines.get(locale).search, self.runner, SafeCalculator()))
+        self.tools = PerLocale(lambda locale: (
+            self.tools_builder(self.engines.get(locale), locale) if self.tools_builder
+            else build_default_tools(self.engines.get(locale).search, self.runner, SafeCalculator())))
         self.demos = PerLocale(lambda locale: DemoCatalog(self.i18n.lexicon(locale), self.i18n.catalog(locale)))
         self.state = PerLocale(lambda locale: ProjectStateResponder(
             self.i18n.lexicon(locale), self.i18n.catalog(locale), self.engines.get(locale).corpus, self.system_facts))
@@ -101,7 +111,8 @@ class Container:
             engines=self.engines,
             state=self.state,
             knowledge=KnowledgeStage(self.gate, self.symbol_cache, self.settings.resolved_symbols_root()),
-            code=CodeDeliveryStage(self.syntax, self.interpreters, OutputWriter(self.settings.output_dir)),
+            code=CodeDeliveryStage(self.syntax, self.interpreters, OutputWriter(self.settings.output_dir),
+                                   system_prompt=self.settings.system_prompt or SYSTEM_PROMPT),
             project=ProjectDeliveryStage(self.generator, self.certifier, self.packager, self.artifacts),
             traces=self.traces,
         )
@@ -152,7 +163,8 @@ class Container:
 
 
 def build_container(settings: Settings | None = None, model_builder: ModelBuilder | None = None,
-                    gains: GainsRepository | None = None) -> Container:
+                    gains: GainsRepository | None = None, corpus_loader: CorpusLoader | None = None,
+                    tools_builder: Callable[[RetrievalEngine, str], ToolRegistry] | None = None) -> Container:
     settings = settings or Settings.from_env()
     # Only what is set is forwarded, so `I18n`'s own defaults stay the single definition of
     # where the bundled corpus is. Passing them unconditionally would put that path in two
@@ -179,7 +191,8 @@ def build_container(settings: Settings | None = None, model_builder: ModelBuilde
         interpreters=interpreters,
         runner=runner,
         syntax=syntax,
-        engines=RetrievalEngineFactory(i18n, gate, vectors),
+        engines=(RetrievalEngineFactory(i18n, gate, vectors, corpus_loader) if corpus_loader
+                 else RetrievalEngineFactory(i18n, gate, vectors)),
         symbol_cache=SymbolIndexCache(),
         artifacts=artifacts,
         traces=TraceWriter(settings.traces_dir / "pipeline.jsonl"),
@@ -187,4 +200,5 @@ def build_container(settings: Settings | None = None, model_builder: ModelBuilde
         generator=ProjectGenerator(interpreters),
         certifier=ProjectCertifier(runner, syntax, DependencyAnalyzer(interpreters)),
         packager=Packager(),
+        tools_builder=tools_builder,
     )
