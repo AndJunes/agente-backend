@@ -47,6 +47,29 @@ jobs:
           PYTHONPATH: src
         run: python -m mirag demo all --locale es
 
+      # `tests/` was deleted, so these two are what stands in for it on the PM side. Neither
+      # needs a model, a network or a key. They check the two things that fail silently: an
+      # index that quietly empties, and a document no skill can reach.
+      - name: The PM corpus loads, in every locale it serves
+        env:
+          PYTHONPATH: src
+        run: python -m mirag_pm.cli doctor
+
+      - name: Every PM document is reachable by a skill
+        env:
+          PYTHONPATH: src
+        run: python -m mirag_pm.cli coverage --by-domain
+
+      # The isolation invariant, in three lines. One process reads one corpus only because
+      # exactly one module resolves the corpus directory; if that spreads, the guarantee that
+      # the two agents cannot mix stops being checkable.
+      - name: Only one module resolves the corpus directory
+        run: |
+          matches=$(git grep -l "from mirag.paths import.*KNOWLEDGE_DIR" -- src || true)
+          if [ "$matches" != "src/mirag/i18n/registry.py" ]; then
+            echo "KNOWLEDGE_DIR is imported outside i18n/registry.py:"; echo "$matches"; exit 1
+          fi
+
       - name: No credential in what is versioned
         run: |
           # Cheap, and it covers the most expensive slip: a .env committed by mistake.

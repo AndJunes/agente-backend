@@ -19,6 +19,7 @@ dev = ["ruff>=0.6", "mypy>=1.10"]
 
 [project.scripts]
 mirag = "mirag.cli:main"
+mirag-pm = "mirag_pm.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
