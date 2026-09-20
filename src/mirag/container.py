@@ -8,7 +8,7 @@ lock on - and get exactly the same object graph production uses.
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypeVar
@@ -88,6 +88,16 @@ class Container:
     state: PerLocale[ProjectStateResponder] = field(init=False)
     architect: PerLocale[ArchitectWorkflow] = field(init=False)
     page_path: Path = WEB_DIR / "index.html"
+
+    operations: Mapping[str, Callable[[Mapping[str, Any], str], dict[str, Any]]] | None = None
+    """Named JSON operations this agent exposes, or ``None``.
+
+    Kept as a plain mapping rather than a typed workflow so that `mirag` does not have to
+    import whatever package defines them. An agent that answers questions needs none of these;
+    one that has to produce a specific artifact for a specific caller — a plan, a revision —
+    cannot express that through `/chat`, whose request body has room for a question and
+    nothing else.
+    """
 
     tools_builder: Callable[[RetrievalEngine, str], ToolRegistry] | None = None
     """How this agent's tools are built. ``None`` means the backend's own set.

@@ -23,6 +23,7 @@ from mirag_pm.paths import DOCUMENTS_LOCALE, KNOWLEDGE_DIR, LOCALES_DIR, SKILLS_
 from mirag_pm.prompts import SYSTEM_PROMPT
 from mirag_pm.skills import SkillLibrary
 from mirag_pm.tools import build_pm_tools
+from mirag_pm.workflow import PmWorkflow
 
 SUPPORTED_LOCALES = ("en", "es")
 """Two answer languages over one body of documents. The corpus is English; the locale picks
@@ -51,4 +52,9 @@ def build_pm_container(settings: Settings | None = None) -> Container:
     def tools(engine: RetrievalEngine, _locale: str) -> ToolRegistry:
         return build_pm_tools(engine.search, skills, lookups, engine.catalog)
 
-    return build_container(settings, corpus_loader=PmCorpus.load, tools_builder=tools)
+    container = build_container(settings, corpus_loader=PmCorpus.load, tools_builder=tools)
+    # Attached after construction because the workflow needs the finished container — its
+    # engines, its gateways, its catalogue. `Container` is a mutable dataclass and `cli.py`
+    # already relies on that.
+    container.operations = PmWorkflow(container).operations()
+    return container
