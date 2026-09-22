@@ -8,7 +8,7 @@ Free models rotate: one disappears, another appears, and `MIRAG_MODEL` has to ch
 script answers which one to change it to, and it exists because the obvious way of deciding
 gave the wrong answer twice.
 
-THE TWO THINGS A MODEL CARD DOES NOT TELL YOU
+THE THREE THINGS A MODEL CARD DOES NOT TELL YOU
 
 1. **Whether it can write a newline inside a tool call.** The project branch delivers files
    through ``deliver_group``, so every line of every file travels as a JSON string.
@@ -22,6 +22,13 @@ THE TWO THINGS A MODEL CARD DOES NOT TELL YOU
    agent actually sends — the full contract, the interface list, five files at once — three
    of those four returned an empty message with ``finish_reason: length``: the entire output
    budget spent on reasoning, nothing emitted. A toy probe would have chosen any of them.
+
+3. **How long it makes you wait.** Ten traced runs said the local pipeline is 2.0 seconds and
+   the waiting is 99.6% of the clock, with 4.5x between the fastest and slowest model that
+   both pass everything above. The model configured on the strength of points 1 and 2 alone
+   turned out to be the slowest of the usable ones — and the only one that never once produced
+   a clean verdict, which costs a second time because a bad delivery forces a repair, and a
+   repair is another call in series.
 
 So the default probe is the real one. It costs nothing (these are free models) and a minute
 per model, and it is the only version whose answer has ever been right.
@@ -37,6 +44,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -101,8 +109,16 @@ def files_of(arguments: object) -> dict[str, object]:
     }
 
 
-def probe(model: str, quick: bool) -> str:
-    """One line saying whether this model can be `MIRAG_MODEL`, and if not, why not."""
+def probe(model: str, quick: bool) -> tuple[str, float]:
+    """Whether this model can be `MIRAG_MODEL`, why not when it cannot, and how long it took.
+
+    The seconds are the SECOND question a model card does not answer, and the measurements say
+    it is the expensive one: across ten traced runs the whole local pipeline was 2.0s and the
+    waiting was 99.6% of the clock, with a 4.5x spread between the fastest and slowest model
+    that both "support tools". Usable but slow is a real answer, so it is reported, not hidden.
+
+    Only the round-trip is timed. Building the contract is ours and costs nothing.
+    """
     contract = ProjectGenerator(InterpreterRegistry()).contract()
     body = {
         "model": model,
@@ -127,16 +143,18 @@ def probe(model: str, quick: bool) -> str:
             "Content-Type": "application/json",
         },
     )
+    started = time.perf_counter()
     try:
         with urllib.request.urlopen(request, timeout=240) as response:
             payload = json.load(response)
     except urllib.error.HTTPError as error:
-        return f"unreachable      HTTP {error.code}"
+        return f"unreachable      HTTP {error.code}", time.perf_counter() - started
     except Exception as error:
-        return f"unreachable      {type(error).__name__}: {str(error)[:60]}"
+        return f"unreachable      {type(error).__name__}: {str(error)[:60]}", time.perf_counter() - started
+    elapsed = time.perf_counter() - started
 
     if "choices" not in payload:
-        return f"no completion    {str((payload.get('error') or {}).get('message'))[:70]}"
+        return f"no completion    {str((payload.get('error') or {}).get('message'))[:70]}", elapsed
     choice = payload["choices"][0]
     message = choice.get("message") or {}
     finish = choice.get("finish_reason")
@@ -145,24 +163,24 @@ def probe(model: str, quick: bool) -> str:
         prose = len(message.get("content") or "")
         # `length` with nothing written is the interesting one: the model reasoned until the
         # budget ran out. It is not a rate limit and not a bad prompt.
-        return f"no tool call     finish={finish}, {prose} chars of prose"
+        return f"no tool call     finish={finish}, {prose} chars of prose", elapsed
     raw = calls[0].get("function", {}).get("arguments") or ""
     try:
         files = files_of(json.loads(raw, strict=False).get("files"))
     except (ValueError, AttributeError) as error:
-        return f"unparseable      {type(error).__name__}, {len(raw)} chars, ends {raw[-40:]!r}"
+        return f"unparseable      {type(error).__name__}, {len(raw)} chars, ends {raw[-40:]!r}", elapsed
     if not files:
-        return f"no files         finish={finish}, keys were empty"
+        return f"no files         finish={finish}, keys were empty", elapsed
     flat = [
         path
         for path, content in files.items()
         if isinstance(content, str) and len(content) > FLAT_AFTER and "\n" not in content
     ]
     if flat:
-        return f"NO NEWLINES      {len(flat)}/{len(files)} files on one line: {flat[0]}"
+        return f"NO NEWLINES      {len(flat)}/{len(files)} files on one line: {flat[0]}", elapsed
     lines = sum(c.count("\n") for c in files.values() if isinstance(c, str))
     chars = sum(len(c) for c in files.values() if isinstance(c, str))
-    return f"USABLE           {len(files)} files, {lines} lines, {chars} chars"
+    return f"USABLE           {len(files)} files, {lines} lines, {chars} chars", elapsed
 
 
 def main(argv: list[str]) -> int:
@@ -173,14 +191,25 @@ def main(argv: list[str]) -> int:
     named = [arg for arg in argv if not arg.startswith("-")]
     models = named or free_models_with_tools()
     print(f"{len(models)} models, {'toy' if quick else 'real'} request\n")
-    usable = []
+    usable: list[tuple[float, str]] = []
     for model in models:
-        verdict = probe(model, quick)
-        print(f"  {model:<50} {verdict}", flush=True)
+        verdict, seconds = probe(model, quick)
+        print(f"  {model:<50} {seconds:6.1f}s  {verdict}", flush=True)
         if verdict.startswith("USABLE"):
-            usable.append(model)
-    print("\nUsable:", ", ".join(usable) or "none — try again, free providers rate-limit hard")
-    return 0 if usable else 1
+            usable.append((seconds, model))
+    if not usable:
+        print("\nUsable: none — try again, free providers rate-limit hard")
+        return 1
+    # Sorted by the clock, because that is the decision this script is used to make. Every
+    # model here already passed the same real request, so the only thing left to choose on is
+    # how long it made you wait — and the measured spread between the fastest and the slowest
+    # of them has been 4.5x, on a run where waiting is 99.6% of the wall clock.
+    usable.sort()
+    print("\nUsable, fastest first:")
+    for seconds, model in usable:
+        print(f"  {seconds:6.1f}s  {model}")
+    print(f"\nMIRAG_MODEL={usable[0][1]}")
+    return 0
 
 
 if __name__ == "__main__":
