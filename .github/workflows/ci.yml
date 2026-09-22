@@ -93,6 +93,27 @@ jobs:
           PYTHONPATH: src
         run: python scripts/check_parallel.py
 
+      # The PM half had no double at all: with the lock on it answered 502, so the flow could
+      # not be exercised from its very first step without a key and a network.
+      - name: The PM agent answers with the lock on
+        env:
+          MIRAG_OFFLINE: "1"
+          PYTHONPATH: src
+        run: |
+          python - <<'CHECK'
+          from mirag_pm.container import build_pm_container
+          ops = build_pm_container().operations
+          idea = {"idea": "Una API REST de reservas con CRUD completo.", "locale": "es"}
+          seen = ops["analyze"](idea, "es")
+          assert seen["summary"], "analyze said nothing"
+          assert (seen.get("questionnaire") or {}).get("questions"), "analyze asked nothing"
+          plan = ops["plan"]({**idea, "round": 1, "maxRounds": 2, "answers": []}, "es")
+          assert plan.get("purpose") and plan.get("entities"), "plan came back empty"
+          assert ops["revise"]({"plan": plan, "feedback": "falta cancelar", "locale": "es"},
+                               "es")["version"] == 2, "revise did not produce a next version"
+          print("the three PM operations answer offline")
+          CHECK
+
       # The isolation invariant, in three lines. One process reads one corpus only because
       # exactly one module resolves the corpus directory; if that spreads, the guarantee that
       # the two agents cannot mix stops being checkable.

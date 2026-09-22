@@ -25,6 +25,7 @@ from mirag.core.errors import OfflineModeError
 from mirag.llm.messages import first_tool_arguments, function_tool
 from mirag.llm.models import ANY_TOOL
 
+from mirag_pm import offline
 from mirag_pm.audit import CitationAuditor
 
 Operation = Callable[[Mapping[str, Any], str], dict[str, Any]]
@@ -166,6 +167,7 @@ class PmWorkflow:
             "Four at most. Ask; do not assume.",
             f"{context}\n\n=== THE IDEA ===\n{idea}",
             [questionnaire_tool(with_summary=True)],
+            operation="analyze",
         )
         arguments = first_tool_arguments(message) or {}
         # The tool's summary when there is one, the prose otherwise. A model that answered in
@@ -209,7 +211,8 @@ class PmWorkflow:
         content = f"{context}\n\n=== THE IDEA ===\n{idea}\n\n=== WHAT THEY ANSWERED ===\n{answered}"
         return self._attempt(
             lambda insist: self._plan_or_questions(
-                self._ask(locale, instruction + insist, content, tools, require=ANY_TOOL),
+                self._ask(locale, instruction + insist, content, tools, require=ANY_TOOL,
+                          operation="plan"),
                 version=1),
         )
 
@@ -230,7 +233,8 @@ class PmWorkflow:
                    f"\n\n=== WHY ===\n{feedback}")
         result = self._attempt(
             lambda insist: self._plan_or_questions(
-                self._ask(locale, instruction + insist, content, [plan_tool()], require="deliver_plan"),
+                self._ask(locale, instruction + insist, content, [plan_tool()],
+                          require="deliver_plan", operation="revise"),
                 version=version + 1),
         )
         if "version" in result:
@@ -271,22 +275,25 @@ class PmWorkflow:
             )
 
     def _ask(self, locale: str, instruction: str, content: str, tools: list[dict[str, Any]],
-             require: str | None = None) -> dict[str, Any]:
+             require: str | None = None, operation: str = "") -> dict[str, Any]:
         catalog = self._container.i18n.catalog(locale)
         system = (
             f"{self._container.settings.system_prompt}\n\n{instruction}\n\n"
             f"{catalog.t('llm.language_directive')}"
         )
-        gateway = self._container.gateways.create()
+        # With the lock on, the DECISION is scripted and everything else is not: the corpus is
+        # really loaded, the retrieval really ran to build `content`, the citation audit really
+        # inspects what comes back. This half used to have no double at all and answered 502,
+        # which meant the whole flow needed a key and a network from its very first step —
+        # every run starts with a PM call.
+        script = offline.script_for(operation) if self._container.gateways.offline else None
+        gateway = self._container.gateways.create(script=script)
         try:
             return gateway.chat([{"role": "system", "content": system},
                                  {"role": "user", "content": content}], tools=tools, require=require)
-        except OfflineModeError as error:
-            # Said plainly rather than as a 500: the offline lock is a deliberate state, and
-            # these three operations have no scripted double to fall back on.
+        except OfflineModeError as error:  # pragma: no cover - the script is passed above
             raise RuntimeError(
-                f"The PM agent has no model: {error}. These operations need one — there is no "
-                f"scripted demo for this corpus."
+                f"The PM agent has no model: {error}. These operations need one."
             ) from error
 
     def _plan_or_questions(self, message: Mapping[str, Any], version: int) -> dict[str, Any]:
