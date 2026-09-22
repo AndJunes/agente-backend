@@ -12,6 +12,8 @@ THE DISTINCTION THAT HOLDS EVERYTHING UP
 
 from __future__ import annotations
 
+import re
+
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -114,20 +116,53 @@ def validate_structure(project: Project, catalog: MessageCatalog) -> list[str]:
     return problems
 
 
-def find_entrypoint(project: Project) -> str:
-    """The module exposing ``create_server``. Searched in the code, not assumed."""
-    for file in project.files():
-        if file.path.endswith(".py") and "def create_server" in file.text:
-            return file.module
-    return ""
+ENTRYPOINT_NAMES = ("create_server", "crear_servidor", "create_app", "crear_app", "make_server")
+ENTRYPOINT = re.compile(r"^\s*(?:async\s+)?def\s+(" + "|".join(ENTRYPOINT_NAMES) + r")\s*\(", re.MULTILINE)
+"""What the CRUD probe imports and calls.
+
+The contract asks for `create_server` in English, and the language directive simultaneously
+pushes the model towards the user's language — a real run produced `crear_servidor`. When the
+substring search missed, `crud` was SKIPPED, no markers existed, and the project topped out at
+GENERATED with nothing anywhere saying why. Accepting the handful of names a model actually
+writes costs nothing; the probe calls whichever one it found."""
+
+
+def find_entrypoint(project: Project) -> tuple[str, str]:
+    """``(module, function)`` of the server factory, or ``("", "")``.
+
+    Searched in the code, not assumed — and matched as a definition rather than as a
+    substring, so a mention in a docstring or a README does not count as one. The file the
+    blueprint declared as the entrypoint is asked first: a test module that happens to define
+    a `create_app` helper would otherwise be imported and started as if it were the server."""
+    entrypoints = project.files("entrypoint")
+    rest = (f for f in project.files() if f not in entrypoints and not f.path.startswith("tests"))
+    for file in (*entrypoints, *rest):
+        if not file.path.endswith(".py"):
+            continue
+        if found := ENTRYPOINT.search(file.text):
+            return file.module, found.group(1)
+    return "", ""
 
 
 class StatusDeriver:
     """Derives the STATUS only from what was observed. Read top to bottom: the first
     condition that holds wins."""
 
+    SUPERSEDES = {"tests_after_repair": "tests"}
+    """A phase that re-runs an earlier one under a different name.
+
+    `tests_after_repair` is the whole list today. It exists because the trace should show that
+    the tests failed AND that they were fixed, while the verdict must read only the second.
+    Without this a repair could never lead anywhere but PARTIAL."""
+
     def __init__(self, catalog: MessageCatalog) -> None:
         self._t = catalog
+
+    @classmethod
+    def _concern(cls, phase: Phase) -> str:
+        """What a phase is ABOUT, ignoring which attempt it was."""
+        base = phase.name.split(":")[0]
+        return cls.SUPERSEDES.get(base, base)
 
     def derive(
         self,
@@ -137,7 +172,10 @@ class StatusDeriver:
         crud: Sequence[str] = (),
     ) -> tuple[ProjectStatus, str]:
         t = self._t
-        by_name = {p.name.split(":")[0]: p for p in phases}
+        by_name = {self._concern(p): p for p in phases}
+        # A dict keeps the LAST row per concern, which is what "effective" means here: a
+        # phase that ran again after a repair replaces the one that failed before it.
+        effective = tuple(by_name.values())
         errors = [f for f in findings if f.severity is Severity.ERROR]
         limits = [f for f in findings if f.severity is Severity.LIMIT]
         passing = [k for k, v in markers.items() if v == "PASS"]
@@ -167,10 +205,11 @@ class StatusDeriver:
         # A phase that RAN and produced no evidence cannot be hidden by another that did: the
         # project's 9 tests came out NO EVIDENCE and the 7 CRUD markers dragged the status
         # to VERIFIED. That is exactly what must not happen.
-        silent = [p.name for p in phases if p.status is PhaseStatus.LIMITED and p.name in ("tests", "crud")]
+        silent = [p.name for p in effective
+                  if p.status is PhaseStatus.LIMITED and self._concern(p) in ("tests", "crud")]
         if silent:
             return ProjectStatus.PARTIAL, t("derive.silent_phase", phase=silent[0])
-        broken = [p.name for p in phases if p.status is PhaseStatus.FAILED]
+        broken = [p.name for p in effective if p.status is PhaseStatus.FAILED]
         if broken:
             return ProjectStatus.PARTIAL, t("derive.phase_failed", phase=broken[0])
         reason = t("derive.verified", count=len(passing))
@@ -257,6 +296,14 @@ class ProjectCertifier:
                 errors = DependencyAnalyzer.of_severity(findings, Severity.ERROR)
                 limits = DependencyAnalyzer.of_severity(findings, Severity.LIMIT)
                 if not errors:
+                    # Re-noted, not left as it was. The first `imports` row said FAILED and
+                    # that row is what the verdict reads; without this a project whose imports
+                    # were repaired, whose tests pass and whose CRUD is green comes out
+                    # PARTIAL because of a phase that is no longer true. The failed row stays
+                    # in the trace — the history is the point — and this one supersedes it.
+                    note(Phase("imports", PhaseStatus.LIMITED if limits else PhaseStatus.OK,
+                               t("cert.imports.limited", count=len(limits)) if limits
+                               else t("cert.imports.repaired", attempt=attempt), clock.ms))
                     break
 
         if errors:
@@ -324,14 +371,17 @@ class ProjectCertifier:
                     break
 
         # ── 5. real CRUD, if the project exposes the contract ────────────────
-        entrypoint = find_entrypoint(project)
+        entrypoint, factory = find_entrypoint(project)
         crud: tuple[str, ...] = ()
         if entrypoint:
             clock.restart()
             mark = probes.nonce()
             crud = probes.crud_ids(mark)
             resource = str(project.spec.get("resource") or "/books")
-            crud_run = self._runner.run({**project.as_text_mapping(), **probes.crud_probe(entrypoint, mark, resource)},
+            sample, change = probes.sample_for(project.spec.get("entity"), project.spec.get("fields"))
+            crud_run = self._runner.run({**project.as_text_mapping(),
+                                         **probes.crud_probe(entrypoint, mark, resource, sample, change,
+                                                             entrypoint_name=factory)},
                                         f"{self._python()} _probe_crud.py")
             note(Phase("crud", _FROM_EXECUTION.get(crud_run.status, PhaseStatus.LIMITED), crud_run.describe(t),
                        clock.ms, crud_run.text))

@@ -8,7 +8,7 @@ request: a project goes to its own artifact, with its own id.
 
 from __future__ import annotations
 
-from mirag.core.errors import OfflineModeError
+from mirag.core.errors import BudgetExceededError, OfflineModeError, RateLimitedError
 from mirag.core.timing import Stopwatch
 from mirag.llm.gateway import LLMGateway
 from mirag.pipeline.knowledge_stage import PreparedRequest
@@ -44,7 +44,14 @@ class ProjectDeliveryStage:
         try:
             generated = self._generator.generate(run.question, prepared.context, gateway, t, directive,
                                                  on_step=generation_step)
-        except OfflineModeError as exc:
+        except BudgetExceededError as exc:
+            # It was not caught at all: the cap is the only thing that really stops a runaway
+            # generation, and reaching it answered with a 500 instead of with the reason.
+            note(Step("generation", StepStatus.ERROR, t("pipeline.model.budget", error=str(exc)),
+                      clock.ms, Source.EXECUTION))
+            run.answer = t("pipeline.model.no_model_answer", error=str(exc))
+            return
+        except (OfflineModeError, RateLimitedError) as exc:
             note(Step("generation", StepStatus.ERROR, t("pipeline.model.offline"), clock.ms, Source.EXECUTION))
             run.answer = t("pipeline.model.no_model_answer", error=str(exc))
             return

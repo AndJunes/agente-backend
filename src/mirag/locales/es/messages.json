@@ -179,7 +179,8 @@
     "imports": {
       "broken": "{count} imports rotos",
       "limited": "{count} dependencias no instaladas aquí",
-      "ok": "el grafo de imports resuelve entero"
+      "ok": "el grafo de imports resuelve entero",
+      "repaired": "reparado en el intento {attempt}: todos los imports resuelven"
     },
     "repair": {
       "imports": "{count} archivos tocados por imports rotos",
@@ -194,7 +195,7 @@
       "ok": "`{command}` corre sin errores"
     },
     "crud": {
-      "skipped": "el proyecto no expone create_server(): no hay API que ejercitar"
+      "skipped": "el proyecto no expone una fábrica de servidor (create_server): no hay API que ejercitar"
     },
     "crud_risk": "la operación {operation} no funciona de verdad",
     "crud_property": "{operation} responde por HTTP",
@@ -232,7 +233,10 @@
       "no_tests": "el plano no incluye ningún archivo en tests/: sin tests no hay nada que verificar",
       "no_entrypoint": "el plano no marca ningún entrypoint",
       "bad_interpreter": "el comando de test empieza por '{first}' y aquí solo hay {available}"
-    }
+    },
+    "no_plan_retry": "el modelo no devolvió un plano utilizable; se lo pido otra vez",
+    "entrypoint_assumed": "el plano no marcaba entrypoint: se toma '{path}' como tal",
+    "plan_unusable": "el plano no tiene entrypoint ni se puede deducir uno: nada de lo que sigue podría ejecutarse"
   },
   "phase": {
     "structure": "Estructura",
@@ -280,7 +284,10 @@
       "offline": "candado offline: no se llamó a nadie",
       "no_model_answer": "[sin modelo] {error}",
       "asked_code": "pidió entregar código",
-      "answered_text": "respondió texto"
+      "answered_text": "respondió texto",
+      "rate_limited": "el proveedor rechazó la llamada: {error}",
+      "budget": "se alcanzó el tope de gasto de esta petición: {error}",
+      "budget_partial": "se alcanzó el tope de gasto; se conserva lo ya generado"
     },
     "delivery": {
       "summary": "{count} archivos · {command}",

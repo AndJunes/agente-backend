@@ -179,7 +179,8 @@
     "imports": {
       "broken": "{count} broken imports",
       "limited": "{count} dependencies not installed here",
-      "ok": "the import graph resolves entirely"
+      "ok": "the import graph resolves entirely",
+      "repaired": "repaired on attempt {attempt}: every import resolves"
     },
     "repair": {
       "imports": "{count} files touched because of broken imports",
@@ -194,7 +195,7 @@
       "ok": "`{command}` runs without errors"
     },
     "crud": {
-      "skipped": "the project does not expose create_server(): there is no API to exercise"
+      "skipped": "the project does not expose a server factory (create_server): there is no API to exercise"
     },
     "crud_risk": "the {operation} operation does not really work",
     "crud_property": "{operation} answers over HTTP",
@@ -232,7 +233,10 @@
       "no_tests": "the plan has no file in tests/: without tests there is nothing to verify",
       "no_entrypoint": "the plan marks no entrypoint",
       "bad_interpreter": "the test command starts with '{first}' and here there is only {available}"
-    }
+    },
+    "no_plan_retry": "the model returned no usable blueprint; asking once more",
+    "entrypoint_assumed": "the plan marked no entrypoint: '{path}' is taken as one",
+    "plan_unusable": "the plan has no entrypoint and none can be inferred: nothing downstream could be run"
   },
   "phase": {
     "structure": "Structure",
@@ -280,7 +284,10 @@
       "offline": "offline lock: nobody was called",
       "no_model_answer": "[no model] {error}",
       "asked_code": "asked to deliver code",
-      "answered_text": "answered with text"
+      "answered_text": "answered with text",
+      "rate_limited": "the provider refused the call: {error}",
+      "budget": "the spending cap for this request was reached: {error}",
+      "budget_partial": "the spending cap was reached; what was already generated is kept"
     },
     "delivery": {
       "summary": "{count} files · {command}",

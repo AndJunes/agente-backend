@@ -33,19 +33,39 @@ class LLMGateway:
     def model_name(self) -> str:
         return self.model.name
 
-    def chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-        """One model turn. ``tools=None`` or ``[]`` sends no tools at all."""
+    def chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None,
+             require: str | None = None) -> dict[str, Any]:
+        """One model turn. ``tools=None`` or ``[]`` sends no tools at all.
+
+        ``require`` names a tool the answer MUST be a call to. Use it where the pipeline has
+        no path forward without that call — the blueprint, the delivery — and not as a default:
+        a model forced to call a tool it has nothing to say through will call it with rubbish.
+        """
         if self.offline and not self.simulated:
             raise OfflineModeError(
                 "MIRAG_OFFLINE is on: OpenRouter is not called. To try without spending use a "
                 "scripted model; to spend for real, set MIRAG_OFFLINE=0."
             )
         self.budget.check()  # cut BEFORE spending, not after
-        response = self.model.complete(messages, list(tools) if tools else None)
+        response = self._complete(messages, list(tools) if tools else None, require)
         self.budget.record(
             response.usage.prompt_tokens, response.usage.completion_tokens, response.usage.cost_usd
         )
         return response.message
+
+    def _complete(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None,
+                  require: str | None):
+        """Calls the model, tolerating one that does not know about ``tool_choice``.
+
+        Scripted doubles and older clients take two arguments. Rather than make every one of
+        them grow a parameter they ignore, the requirement is dropped when it cannot be
+        passed — the caller then gets the same answer it got before this existed."""
+        if require is None:
+            return self.model.complete(messages, tools)
+        try:
+            return self.model.complete(messages, tools, require)  # type: ignore[call-arg]
+        except TypeError:
+            return self.model.complete(messages, tools)
 
 
 ModelBuilder = Callable[[Settings], ChatModel]

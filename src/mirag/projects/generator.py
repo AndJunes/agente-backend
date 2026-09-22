@@ -24,7 +24,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from mirag.core.errors import ForbiddenPathError
+from mirag.core.errors import BudgetExceededError, ForbiddenPathError, RateLimitedError
 from mirag.execution.interpreters import InterpreterRegistry
 from mirag.i18n.catalog import MessageCatalog
 from mirag.llm.gateway import LLMGateway
@@ -33,8 +33,54 @@ from mirag.projects.certification import Repairer
 from mirag.projects.dependencies import Finding
 from mirag.projects.model import FILE_KINDS, Project
 
-MAX_CALLS = 7
+MAX_CALLS = 10
+"""The real ceiling on model calls inside :meth:`ProjectGenerator.generate`.
+
+It was 7 and was never enforced: the blueprint's retry was not counted (`used = 1` whatever
+had happened) so the true ceiling was 8, and with four groups `used >= MAX_CALLS` could not
+fire at all. Now every call is counted, and the number is the worst case it has to allow:
+two blueprint attempts plus two attempts for each of four groups. Repairs are NOT in here —
+they belong to certification, which has its own attempt cap."""
+
+SPECIFY_ATTEMPTS = 2
+"""How many times the blueprint is asked for before giving up.
+
+Two, not one, and not more: a model that answers in prose twice is not going to answer in a
+tool call on the third try, and each attempt costs a call out of MAX_CALLS."""
+
+GROUP_ATTEMPTS = 2
+"""And the same for a group, for the same measured reason.
+
+The blueprint's retry carries a comment saying free providers drop calls. That is just as
+true of a group, and it was never applied to one: the run that lost its README lost it to a
+single empty answer from the `docs` group."""
 GROUPS = ("core", "domain", "tests", "docs")
+"""The order the four known groups are generated in — not the list of what exists.
+
+`GROUPS` used to BE the loop, so a plan entry with `group: "config"`, `group: "api"` or no
+group at all was never asked for, never generated and never reported: the files simply
+vanished between the blueprint and the project. The enum in the schema is a suggestion the
+model is free to ignore, and offline this never showed because the demo labels its fourteen
+files with these four exact names."""
+
+
+def groups_of(plan: Sequence[Mapping[str, Any]]) -> list[str]:
+    """Every group the plan actually mentions, the four known ones first."""
+    present = {str(f.get("group") or "") for f in plan}
+    extra = sorted(g for g in present if g and g not in GROUPS)
+    return [g for g in GROUPS if g in present] + extra
+
+
+def _group_for(entry: Mapping[str, Any]) -> str:
+    """The group of a plan entry that came without one, inferred from what it is."""
+    path, kind = str(entry.get("path") or ""), str(entry.get("kind") or "")
+    if kind == "test" or path.startswith("tests/"):
+        return "tests"
+    if kind == "doc" or path.endswith((".md", ".txt")) or path in ("Dockerfile", "LICENSE", "Makefile"):
+        return "docs"
+    if kind == "config" or path.endswith((".json", ".toml", ".ini", ".cfg", ".yml", ".yaml", ".example")):
+        return "core"
+    return "core"
 
 HTTP_CONTRACT = """\
 MANDATORY PROJECT RULES (set by Mirag, not negotiable):
@@ -137,14 +183,40 @@ class GenerationResult:
     project: Project | None
     spec: dict[str, Any] | None
     steps: list[GenerationStep] = field(default_factory=list)
+    calls: int = 0
+    """Model calls actually spent. Reported rather than assumed, because the number the
+    docstring promised and the number the loop spent were never the same."""
 
 
 StepListener = Callable[[GenerationStep], None]
 
 
 def _files_of(data: Mapping[str, Any]) -> dict[str, Any]:
+    """``{path: content}`` out of whatever shape the model used for ``files``.
+
+    The schema asks for an object. Models routinely send a LIST of objects instead —
+    ``[{"path": ..., "content": ...}]`` is the commonest way to write a path→content map, and
+    the docs group was seen doing exactly that. This used to return ``{}`` for anything that
+    was not a dict, so every file was lost with no diagnostic and the step read "the tool call
+    brought no files" for a call that brought all of them.
+    """
     raw = data.get("files")
-    return raw if isinstance(raw, dict) else {}
+    if isinstance(raw, dict):
+        return dict(raw)
+    if not isinstance(raw, list):
+        return {}
+    files: dict[str, Any] = {}
+    for entry in raw:
+        if not isinstance(entry, Mapping):
+            continue
+        path = entry.get("path") or entry.get("name") or entry.get("filename")
+        if not isinstance(path, str) or not path.strip():
+            continue
+        for key in ("content", "text", "body", "source", "code"):
+            if key in entry:
+                files[path] = entry[key]
+                break
+    return files
 
 
 class ProjectGenerator:
@@ -235,7 +307,9 @@ class ProjectGenerator:
 
     def generate(self, request: str, context: str, gateway: LLMGateway, catalog: MessageCatalog,
                  language_directive: str = "", on_step: StepListener | None = None) -> GenerationResult:
-        """Uses at most :data:`MAX_CALLS` model calls."""
+        """Uses at most :data:`MAX_CALLS` model calls, and now actually counts them.
+
+        Repairs are not included: they are certification's, with their own cap."""
         result = GenerationResult(None, None)
         t = catalog
 
@@ -246,24 +320,67 @@ class ProjectGenerator:
 
         contract = self.contract(language_directive)
         system = f"{context}\n\n{contract}\n\nFirst define the project and its file plan. Without writing code."
-        message = gateway.chat([{"role": "system", "content": system}, {"role": "user", "content": request}],
-                               tools=[SPECIFY_TOOL])
-        spec = first_tool_arguments(message)
+        messages = [{"role": "system", "content": system}, {"role": "user", "content": request}]
+
+        # Asked twice before giving up, because one empty answer is not evidence that the model
+        # cannot do this. The same request was observed failing and then succeeding minutes
+        # later with a 23-file blueprint: free providers drop calls. Without the retry a
+        # transient hiccup ends the whole generation, and the user sees an agent that cannot
+        # build their project rather than a provider that blinked.
+        spec = None
+        used = 0
+        why: list[str] = []
+        for attempt in range(SPECIFY_ATTEMPTS):
+            why = []
+            message = gateway.chat(messages, tools=[SPECIFY_TOOL], require="specify_project")
+            used += 1
+            spec = first_tool_arguments(message, why, name="specify_project")
+            if spec and isinstance(spec.get("files"), list) and spec["files"]:
+                break
+            if spec is not None and not (spec.get("files") or []):
+                why.append("the blueprint arrived with no files in it")
+            if attempt + 1 < SPECIFY_ATTEMPTS:
+                note(GenerationStep("specification", "fallback", t("generation.no_plan_retry")))
         result.spec = spec
         if not spec or not isinstance(spec.get("files"), list) or not spec["files"]:
-            note(GenerationStep("specification", "error", t("generation.no_plan")))
+            # `first_tool_arguments` has always collected WHY — prose, truncated JSON, wrong
+            # shape — and this step has always thrown it away, reporting the same sentence for
+            # three different problems with three different fixes. It cost an afternoon.
+            note(GenerationStep("specification", "error", t("generation.no_plan"),
+                                detail={"diagnostics": why} if why else None))
+            result.calls = used
             return result
 
         plan = [f for f in spec["files"] if isinstance(f, dict) and f.get("path")]
         # tolerate the legacy field names some models still send
         for entry in plan:
             entry.setdefault("kind", entry.pop("type", "code"))
+            # An entry with no group is an entry no loop would ever ask for. Inferring one is
+            # not a guess about intent — it is the difference between the file being written
+            # and the file disappearing between the blueprint and the project.
+            if not str(entry.get("group") or "").strip():
+                entry["group"] = _group_for(entry)
         plan, added = self.complete_plan(plan, spec)
         if added:
             note(GenerationStep("plan", "fallback", t("generation.tests_added", count=len(added)), {"added": added}))
         if problems := self.validate_plan(plan, spec, catalog):
             # Said HERE, not after generating eleven files and failing on structure.
             note(GenerationStep("plan", "error", "; ".join(problems), {"problems": problems}))
+            # And it used to be said and then ignored: four more calls went into a blueprint
+            # already known to be unverifiable. The plan is repaired once — `complete_plan`
+            # already adds missing tests — and only a plan with NO entrypoint is fatal, because
+            # without one nothing downstream can be run at all.
+            if not any(f.get("kind") == "entrypoint" for f in plan):
+                for entry in plan:
+                    if entry.get("path", "").endswith("main.py") or entry.get("group") == "core":
+                        entry["kind"] = "entrypoint"
+                        note(GenerationStep("plan", "fallback", t("generation.entrypoint_assumed",
+                                                                  path=entry["path"]), {"path": entry["path"]}))
+                        break
+                else:
+                    note(GenerationStep("plan", "error", t("generation.plan_unusable"), {"problems": problems}))
+                    result.calls = used
+                    return result
         note(GenerationStep("specification", "executed",
                             t("generation.specified", name=spec.get("name", "project"),
                               framework=spec.get("framework", "?"), count=len(plan)),
@@ -271,8 +388,11 @@ class ProjectGenerator:
                              "plan": [f.get("path") for f in plan]}))
 
         project = Project(spec.get("name") or "project", spec)
-        used = 1
-        for group in GROUPS:
+        stopped = ""
+        for group in groups_of(plan):
+            if stopped:
+                note(GenerationStep(f"generation:{group}", "skipped", t("pipeline.model.budget_partial")))
+                continue
             own = [f for f in plan if f.get("group") == group]
             if not own:
                 continue
@@ -280,29 +400,55 @@ class ProjectGenerator:
                 note(GenerationStep(f"generation:{group}", "skipped", t("generation.call_cap", cap=MAX_CALLS)))
                 continue
             wanted = "\n".join(f"  {f['path']} — {f.get('purpose', '')}" for f in own)
-            message = gateway.chat([
-                {"role": "system", "content": f"{contract}\n\n{self.interface_contract(plan, project, group)}"},
-                {"role": "user", "content": f"Write the COMPLETE content of these files of the group '{group}':\n{wanted}"},
-            ], tools=[DELIVER_GROUP_TOOL])
-            used += 1
+            # Asked more than once, for the same reason the blueprint is: the group that
+            # failed in the real run was `docs`, on a free provider that drops calls, and one
+            # empty answer ended the only chance the project had of getting a README. The
+            # second attempt costs a call and is skipped when the cap is already in sight.
+            placed: list[str] = []
+            rejected: list[str] = []
             reasons: list[str] = []
-            data = first_tool_arguments(message, reasons) or {}
-            files = _files_of(data)
-            if not files and not reasons:
-                reasons.append(f"the tool call brought no files: keys {sorted(data)}")
-            placed, rejected = [], []
-            for path, content in files.items():
-                # The schema says string; a model can still send null for an empty file. A
-                # None used to raise TypeError out of the whole generation, and an int became
-                # that many NUL bytes (bytes(5)). Strict when writing: it is rejected, visibly.
-                if not isinstance(content, str):
-                    rejected.append(f"{path}: the content is {type(content).__name__}, not text")
-                    continue
+            for attempt in range(GROUP_ATTEMPTS):
+                if used >= MAX_CALLS:
+                    break
+                missing = [f for f in own if project.get(f["path"]) is None]
+                if not missing:
+                    break
+                if attempt:
+                    wanted = "\n".join(f"  {f['path']} — {f.get('purpose', '')}" for f in missing)
                 try:
-                    project.add(path, content, kind=self._kind_of(path, plan), group=group)
-                    placed.append(path)
-                except ForbiddenPathError as exc:
-                    rejected.append(f"{path}: {exc}")
+                    message = gateway.chat([
+                        {"role": "system",
+                         "content": f"{contract}\n\n{self.interface_contract(plan, project, group)}"},
+                        {"role": "user", "content": f"Write the COMPLETE content of these files of the group "
+                                                    f"'{group}':\n{wanted}"},
+                    ], tools=[DELIVER_GROUP_TOOL], require="deliver_group")
+                except (BudgetExceededError, RateLimitedError) as exc:
+                    # Eleven files already exist. Letting this out of `generate` threw them
+                    # away and answered with a stack trace; what the user gets instead is the
+                    # project that WAS built, with a step saying which group never arrived.
+                    stopped = str(exc)
+                    note(GenerationStep(f"generation:{group}", "error",
+                                        t("pipeline.model.budget_partial"), {"cause": stopped}))
+                    break
+                used += 1
+                data = first_tool_arguments(message, reasons, name="deliver_group") or {}
+                files = _files_of(data)
+                if not files:
+                    reasons.append(f"the tool call brought no files: keys {sorted(data)}")
+                for path, content in files.items():
+                    # The schema says string; a model can still send null for an empty file. A
+                    # None used to raise TypeError out of the whole generation, and an int became
+                    # that many NUL bytes (bytes(5)). Strict when writing: it is rejected, visibly.
+                    if not isinstance(content, str):
+                        rejected.append(f"{path}: the content is {type(content).__name__}, not text")
+                        continue
+                    try:
+                        project.add(path, content, kind=self._kind_of(path, plan), group=group)
+                        placed.append(path)
+                    except ForbiddenPathError as exc:
+                        rejected.append(f"{path}: {exc}")
+                if placed:
+                    break
             summary = t("generation.group_files", count=len(placed))
             if rejected:
                 summary += " · " + t("generation.group_rejected", count=len(rejected))
@@ -310,9 +456,10 @@ class ProjectGenerator:
                 summary += f" · {reasons[0][:90]}"
             note(GenerationStep(f"generation:{group}", "executed" if placed else "error", summary,
                                 {"files": placed, "rejected": rejected, "reasons": reasons,
-                                 "requested": [f["path"] for f in own]}))
+                                 "requested": [f["path"] for f in own], "calls": used}))
 
         result.project = project if project.files() else None
+        result.calls = used
         return result
 
     # ── repair ───────────────────────────────────────────────────────────────
@@ -337,8 +484,8 @@ class ProjectGenerator:
                                               "Return ONLY the files you change."},
                 {"role": "user", "content": f"Attempt {attempt}. This is wrong:\n{diagnosis or '(see the output)'}\n\n"
                                             f"Execution output:\n{(output or '')[:3000]}\n\nFiles involved:\n{bodies}"},
-            ], tools=[REPAIR_TOOL])
-            data = first_tool_arguments(message) or {}
+            ], tools=[REPAIR_TOOL], require="repair_files")
+            data = first_tool_arguments(message, name="repair_files") or {}
             new_files = _files_of(data)
             if not new_files:
                 return project, (), str(data.get("cause", "the model returned no file"))

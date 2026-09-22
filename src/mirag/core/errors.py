@@ -15,6 +15,15 @@ class BudgetExceededError(MiragError):
     """The per-request spending cap was reached. Raised BEFORE spending more, not after."""
 
 
+class RateLimitedError(MiragError):
+    """The provider refused the call because of its own limits, not because of the request.
+
+    It has a name because without one it arrived at the user as "the model returned no usable
+    blueprint" — a sentence about the model's answer, for a call that never got an answer. An
+    hour went into the wrong question before the raw 429 was read.
+    """
+
+
 class OfflineModeError(MiragError):
     """Somebody tried to call the model while the offline lock is on.
 

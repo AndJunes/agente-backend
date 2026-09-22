@@ -110,18 +110,34 @@ def plan_tool() -> dict[str, Any]:
     )
 
 
-def questionnaire_tool() -> dict[str, Any]:
+def questionnaire_tool(with_summary: bool = False) -> dict[str, Any]:
+    """Ask for what cannot be inferred.
+
+    ``with_summary`` folds the restatement of the idea INTO the tool call, and that is not a
+    convenience. Asked for prose *and* a tool call in one turn, models reliably do one or the
+    other: observed live, one run wrote the restatement and never called the tool, so the
+    questionnaire silently disappeared and the flow went straight to planning without asking
+    anything. Everything inside one call removes the choice — which is exactly why
+    ``deliver_plan`` is shaped that way.
+    """
+    properties: dict[str, Any] = {
+        "reason": {"type": "string", "description": "why these questions and not others"},
+        "questions": {"type": "array", "items": _QUESTION},
+    }
+    required = ["reason", "questions"]
+    if with_summary:
+        properties = {
+            "summary": {"type": "string",
+                        "description": "what you understood, plainly, proposing no solution"},
+            **properties,
+        }
+        required = ["summary", *required]
     return function_tool(
         "ask_questions",
-        "Ask for the decisions you cannot infer. Prefer asking to assuming. Call it ONCE.",
-        {
-            "type": "object",
-            "properties": {
-                "reason": {"type": "string", "description": "why these and not others"},
-                "questions": {"type": "array", "items": _QUESTION},
-            },
-            "required": ["reason", "questions"],
-        },
+        "Restate what you understood and ask for the decisions you cannot infer. Call it ONCE, "
+        "with everything inside." if with_summary
+        else "Ask for the decisions you cannot infer. Prefer asking to assuming. Call it ONCE.",
+        {"type": "object", "properties": properties, "required": required},
     )
 
 
@@ -148,17 +164,20 @@ class PmWorkflow:
             "inferred from what they said — the ones that would change the shape of the work. "
             "Four at most. Ask; do not assume.",
             f"{context}\n\n=== THE IDEA ===\n{idea}",
-            [questionnaire_tool()],
+            [questionnaire_tool(with_summary=True)],
         )
-        summary = message.get("content") or ""
+        arguments = first_tool_arguments(message) or {}
+        # The tool's summary when there is one, the prose otherwise. A model that answered in
+        # prose still said something useful; it just did not ask anything.
+        summary = str(arguments.get("summary") or "") or (message.get("content") or "")
         if findings := self._audit(summary):
             summary = f"{summary}\n\n" + "\n".join(f"⚠️ {f}" for f in findings)
+
         result: dict[str, Any] = {"summary": summary}
-        if arguments := first_tool_arguments(message):
-            result["questionnaire"] = {
-                "reason": str(arguments.get("reason") or ""),
-                "questions": _questions(arguments.get("questions")),
-            }
+        # Only when there is something to ask. An empty questionnaire is not a questionnaire:
+        # it crashed the screen, which opened the popup and read question zero of none.
+        if questions := _questions(arguments.get("questions")):
+            result["questionnaire"] = {"reason": str(arguments.get("reason") or ""), "questions": questions}
         return result
 
     def plan(self, payload: Mapping[str, Any], locale: str) -> dict[str, Any]:
@@ -168,14 +187,28 @@ class PmWorkflow:
         answered = "\n".join(
             f"- {a.get('questionId')}: {a.get('value')}" for a in answers if isinstance(a, Mapping)
         ) or "(none: the user chose to go on without answering)"
+        # The caller says which round this is, and the LAST one is enforced by not offering the
+        # tool at all. Asking the model to stop asking is a request; removing `ask_questions`
+        # from the turn is a fact. Observed live: three rounds in, the agent was asking what it
+        # should produce — a question about its own task, which the caller had already settled.
+        round_number = _int(payload.get("round"), 0)
+        last_round = round_number >= _int(payload.get("maxRounds"), 2)
+        tools = [plan_tool()] if last_round else [plan_tool(), questionnaire_tool()]
+
         context = self._context(idea, locale, "write-requirements")
         message = self._ask(
             locale,
-            "Produce the plan by calling deliver_plan. If the answers have opened a decision you "
-            "still cannot make, call ask_questions instead — a second round is a normal outcome, "
-            "not a failure. " + SCHEMA_NOTE,
+            "Produce the plan by calling deliver_plan. " + (
+                "This is the last round: whatever is still unresolved goes in openQuestions, "
+                "which is what that field is for. Do not ask again — say what you do not know "
+                "and plan around it."
+                if last_round else
+                "If the answers have opened a decision you still cannot make, call ask_questions "
+                "instead — a second round is a normal outcome, not a failure. Ask about the "
+                "PRODUCT, never about what you should be producing: that is already decided."
+            ) + " " + SCHEMA_NOTE,
             f"{context}\n\n=== THE IDEA ===\n{idea}\n\n=== WHAT THEY ANSWERED ===\n{answered}",
-            [plan_tool(), questionnaire_tool()],
+            tools,
         )
         return self._plan_or_questions(message, version=1)
 
@@ -238,9 +271,12 @@ class PmWorkflow:
         arguments = first_tool_arguments(dict(message))
         if arguments is None:
             raise RuntimeError("the model answered in prose where a plan was required")
-        if "questions" in arguments:
-            return {"reason": str(arguments.get("reason") or ""),
-                    "questions": _questions(arguments.get("questions"))}
+        if questions := _questions(arguments.get("questions")):
+            return {"reason": str(arguments.get("reason") or ""), "questions": questions}
+        if "questions" in arguments and "purpose" not in arguments:
+            # It meant to ask and produced nothing askable. Saying so beats returning an empty
+            # questionnaire, which the screen cannot render, or a plan that was never written.
+            raise RuntimeError("the model opened a questionnaire with no usable questions")
         return {
             "version": version,
             "purpose": str(arguments.get("purpose") or ""),
@@ -290,6 +326,10 @@ def _text(payload: Mapping[str, Any], key: str) -> str:
     if len(value) > MAX_IDEA_CHARS:
         raise ValueError(f"{key!r} is longer than {MAX_IDEA_CHARS} characters")
     return value.strip()
+
+
+def _int(value: Any, default: int) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else default
 
 
 def _list(value: Any) -> list[Any]:
