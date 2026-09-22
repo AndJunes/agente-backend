@@ -109,6 +109,21 @@ def files_of(arguments: object) -> dict[str, object]:
     }
 
 
+RETRYABLE = frozenset({429, 500, 502, 503, 504})
+"""The provider's problem, not the request's — the same set `mirag.llm.models` retries."""
+
+RETRY_THROTTLED = 2
+"""Extra attempts when the provider throttles. Two is enough to get past a burst limit."""
+
+
+def _retry_after(error: urllib.error.HTTPError) -> float:
+    """``Retry-After`` when the provider sends one, capped, otherwise a plain backoff."""
+    try:
+        return min(float(error.headers.get("Retry-After") or 0) or 5.0, 30.0)
+    except (TypeError, ValueError):
+        return 5.0
+
+
 def probe(model: str, quick: bool) -> tuple[str, float]:
     """Whether this model can be `MIRAG_MODEL`, why not when it cannot, and how long it took.
 
@@ -143,14 +158,29 @@ def probe(model: str, quick: bool) -> tuple[str, float]:
             "Content-Type": "application/json",
         },
     )
-    started = time.perf_counter()
-    try:
-        with urllib.request.urlopen(request, timeout=240) as response:
-            payload = json.load(response)
-    except urllib.error.HTTPError as error:
-        return f"unreachable      HTTP {error.code}", time.perf_counter() - started
-    except Exception as error:
-        return f"unreachable      {type(error).__name__}: {str(error)[:60]}", time.perf_counter() - started
+    # A 429 is the provider saying "later", not an answer about the model — `models.py` has
+    # always retried it and the probe did not, so a model that happened to be throttled in the
+    # minute it was asked came out looking unusable. Measured: two of nineteen, both back in
+    # under four seconds, both recorded as a verdict. The wait is NOT counted in the seconds;
+    # what is being measured is the round-trip of the attempt that answered.
+    for remaining in reversed(range(RETRY_THROTTLED + 1)):
+        started = time.perf_counter()
+        try:
+            with urllib.request.urlopen(request, timeout=240) as response:
+                payload = json.load(response)
+            break
+        except urllib.error.HTTPError as error:
+            spent = time.perf_counter() - started
+            if error.code not in RETRYABLE:
+                return f"unreachable      HTTP {error.code}", spent
+            if not remaining:
+                # Out of attempts, and it is still the provider's limit rather than the
+                # model's doing. Said that way, because the two call for different fixes.
+                return (f"throttled        HTTP {error.code} on all "
+                        f"{RETRY_THROTTLED + 1} tries", spent)
+            time.sleep(_retry_after(error))
+        except Exception as error:
+            return f"unreachable      {type(error).__name__}: {str(error)[:60]}", time.perf_counter() - started
     elapsed = time.perf_counter() - started
 
     if "choices" not in payload:
