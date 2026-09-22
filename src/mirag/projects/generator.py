@@ -24,8 +24,9 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from mirag.core.errors import (BudgetExceededError, ForbiddenPathError, ModelUnreachableError,
-                               RateLimitedError)
+from mirag.core.errors import (BudgetExceededError, ClientGoneError, DeadlineExceededError,
+                               ForbiddenPathError, ModelUnreachableError, RateLimitedError,
+                               RunStoppedError)
 from mirag.execution.interpreters import InterpreterRegistry
 from mirag.i18n.catalog import MessageCatalog
 from mirag.llm.gateway import LLMGateway
@@ -73,6 +74,8 @@ _STOP_REASON: dict[type[Exception], str] = {
     BudgetExceededError: "generation.budget_stopped",
     RateLimitedError: "generation.provider_stopped",
     ModelUnreachableError: "generation.unreachable_stopped",
+    DeadlineExceededError: "generation.deadline_stopped",
+    ClientGoneError: "generation.abandoned_stopped",
 }
 """Which sentence each stop deserves. They are handled the same and they are not the same."""
 
@@ -582,7 +585,8 @@ class ProjectGenerator:
                         {"role": "user", "content": f"Write the COMPLETE content of these files of the group "
                                                     f"'{group}':\n{wanted}"},
                     ], tools=[DELIVER_GROUP_TOOL], require="deliver_group")
-                except (BudgetExceededError, RateLimitedError, ModelUnreachableError) as exc:
+                except (BudgetExceededError, RateLimitedError, ModelUnreachableError,
+                        RunStoppedError) as exc:
                     # Eleven files already exist. Letting this out of `generate` threw them
                     # away and answered with a stack trace; what the user gets instead is the
                     # project that WAS built, with a step saying which group never arrived.
@@ -676,12 +680,20 @@ class ProjectGenerator:
             found = [(p, file) for p in involved if (file := project.get(p)) is not None]
             bodies = "\n\n".join(f"--- {p}\n{file.text}" for p, file in found)
             diagnosis = "\n".join(f"  {f.file}:{f.line} {f.detail}" for f in errors)
-            message = gateway.chat([
-                {"role": "system", "content": f"{contract}\n\nFix the CAUSE, not the symptom. "
-                                              "Return ONLY the files you change."},
-                {"role": "user", "content": f"Attempt {attempt}. This is wrong:\n{diagnosis or '(see the output)'}\n\n"
-                                            f"Execution output:\n{(output or '')[:3000]}\n\nFiles involved:\n{bodies}"},
-            ], tools=[REPAIR_TOOL], require="repair_files")
+            try:
+                message = gateway.chat([
+                    {"role": "system", "content": f"{contract}\n\nFix the CAUSE, not the symptom. "
+                                                  "Return ONLY the files you change."},
+                    {"role": "user",
+                     "content": f"Attempt {attempt}. This is wrong:\n{diagnosis or '(see the output)'}\n\n"
+                                f"Execution output:\n{(output or '')[:3000]}\n\nFiles involved:\n{bodies}"},
+                ], tools=[REPAIR_TOOL], require="repair_files")
+            except RunStoppedError as exc:
+                # A repair is the one model call the project can do without. Letting the
+                # clock out of here would throw away a project that is already built and
+                # already worth packaging; the certifier's own `if not changed: break` ends
+                # the repair loop, and the reason travels in the cause.
+                return project, (), str(exc)
             data = first_tool_arguments(message, name="repair_files") or {}
             new_files = _files_of(data)
             if not new_files:

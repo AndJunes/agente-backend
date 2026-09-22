@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import hmac
 import json
+import select
+import socket
+import threading
 import traceback
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -289,6 +292,11 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.close_connection = True
         gone = False
+        cancelled = threading.Event()
+        """`gone` says WRITING is pointless. This says the WORK is.
+
+        They are not the same fact, and conflating them is why a closed tab kept generating —
+        and kept being billed — for twenty minutes after nobody was left to read it."""
 
         def emit(event: dict[str, Any]) -> None:
             """One SSE event. flush() on each one or the browser sees nothing until the end."""
@@ -301,8 +309,63 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
                 self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 gone = True
+                if self.container.settings.cancel_on_disconnect:
+                    cancelled.set()
 
-        self.container.chat.handle(request, emit, self.headers.get("Accept-Language"))
+        with _DisconnectWatch(self.connection, cancelled,
+                              self.container.settings.cancel_on_disconnect):
+            self.container.chat.handle(request, emit, self.headers.get("Accept-Language"),
+                                       cancelled=cancelled)
+
+
+class _DisconnectWatch:
+    """Notices the client leaving during the SILENCE, not at the next write.
+
+    `emit` finds out the browser is gone when a write fails — and the window that matters is
+    exactly the one with no writes in it: a single model call averages 234 seconds. Detection
+    driven by writes is therefore honest and mostly inert.
+
+    The test is one line of socket semantics: a connection whose peer sent FIN is readable and
+    peeks as zero bytes. Readable and NON-empty means the client is sending something nobody
+    asked for — this connection is `Connection: close` and its body was read long ago — and
+    `MSG_PEEK` takes nothing from anybody either way.
+
+    Best-effort by nature. A peer killed without a FIN (power cut, partition) is never
+    noticed, and behind a reverse proxy this only ever sees the proxy's connection, which can
+    outlive its own client. The wall-clock deadline is what makes cancellation eventually
+    correct; this only makes it fast in the common case.
+    """
+
+    POLL_S = 1.0
+
+    def __init__(self, connection: Any, cancelled: threading.Event, enabled: bool) -> None:
+        self._connection = connection
+        self._cancelled = cancelled
+        self._enabled = enabled
+        self._done = threading.Event()
+        self._thread = threading.Thread(target=self._watch, name="sse-disconnect", daemon=True)
+
+    def __enter__(self) -> _DisconnectWatch:
+        if self._enabled:
+            self._thread.start()
+        return self
+
+    def __exit__(self, *_exc: Any) -> None:
+        self._done.set()
+        if self._enabled:
+            self._thread.join(timeout=2.0)
+
+    def _watch(self) -> None:
+        while not self._done.wait(self.POLL_S):
+            try:
+                if not select.select([self._connection], [], [], 0)[0]:
+                    continue
+                if self._connection.recv(1, socket.MSG_PEEK) == b"":
+                    self._cancelled.set()
+                    return
+            except (OSError, ValueError):
+                self._cancelled.set()  # the socket is gone, and so is the client
+                return
 
 
 def build_router(container: Container | None = None) -> Router:

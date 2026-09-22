@@ -34,6 +34,33 @@ class ModelUnreachableError(MiragError):
     """
 
 
+class RunStoppedError(MiragError):
+    """The run stopped for a reason that is neither the provider's nor the request's: the
+    clock ran out, or the person who asked went away.
+
+    It is caught wherever the three model errors are caught, because the handling is
+    identical — keep what was built, stop asking — and it is named apart because reporting
+    "the spending cap was reached" for a run that ran out of TIME is exactly the misleading
+    sentence this codebase keeps having to remove.
+    """
+
+
+class DeadlineExceededError(RunStoppedError):
+    """The wall clock ran out.
+
+    Distinct from a socket timeout, which only ever bounded one ``recv``: a provider sending
+    one byte a minute rearms that timer forever and never times out at all.
+    """
+
+
+class ClientGoneError(RunStoppedError):
+    """Nobody is waiting for this answer any more.
+
+    The work is stopped, not only the writing. Before this, a closed tab set a flag that
+    suppressed the SSE writes and left the generation running — and being billed — to the end.
+    """
+
+
 class OfflineModeError(MiragError):
     """Somebody tried to call the model while the offline lock is on.
 

@@ -195,6 +195,7 @@
     },
     "execution": {
       "limited": "no se ejecuta aquí: falta {missing}",
+      "deadline": "sin ejecutar: se acabó el tiempo de esta petición",
       "disabled": "sin ejecutar: la ejecución está apagada (MIRAG_EXECUTION=off). Los tests se entregan para el agente de QA"
     },
     "documented": {
@@ -241,6 +242,8 @@
     "group_missing": "{count} archivos del plano que el modelo nunca entregó",
     "budget_stopped": "se alcanzó el tope de gasto; se conserva lo generado — {reason}",
     "provider_stopped": "el proveedor dejó de responder; se conserva lo generado — {reason}",
+    "deadline_stopped": "se acabó el tiempo de esta petición; se conserva lo generado — {reason}",
+    "abandoned_stopped": "ya nadie está esperando esto; se detuvo — {reason}",
     "unreachable_stopped": "no se pudo llegar al proveedor; se conserva lo generado — {reason}",
     "model_stopped": "el modelo dejó de responder; se conserva lo generado — {reason}",
     "stopped_earlier": "no se pidió: la generación ya se había detenido — {reason}",

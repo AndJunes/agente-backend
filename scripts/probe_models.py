@@ -132,7 +132,7 @@ def probe(model: str, quick: bool) -> str:
             payload = json.load(response)
     except urllib.error.HTTPError as error:
         return f"unreachable      HTTP {error.code}"
-    except Exception as error:  # noqa: BLE001 — every failure is a result here, not a crash
+    except Exception as error:
         return f"unreachable      {type(error).__name__}: {str(error)[:60]}"
 
     if "choices" not in payload:

@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from mirag.core.timing import Stopwatch
+from mirag.core.timing import Deadline, Stopwatch
 from mirag.evidence.properties import EvidenceBuilder, EvidenceRow
 from mirag.execution.runner import CodeRunner
 from mirag.execution.syntax import SyntaxChecker
@@ -295,6 +295,7 @@ class ProjectCertifier:
         on_phase: PhaseListener | None = None,
         repairer: Repairer | None = None,
         expected: Sequence[str] = (),
+        deadline: Deadline | None = None,
     ) -> Certificate:
         t = catalog
         phases: list[Phase] = []
@@ -431,6 +432,18 @@ class ProjectCertifier:
         # tests ran and printed no marker"), which would be false. Without them it is
         # GENERATED, "there are files and nothing ran" - exactly what happened. Structure,
         # syntax and imports above are static analysis and still catch the real failures.
+        # Out of time, and a project already exists. The sections below are the only ones that
+        # RUN anything, and they are each bounded by the runner's own subprocess timeout — so
+        # this is not about a hang, it is about not spending three more minutes on a run whose
+        # answer nobody is waiting for. Degrading is the whole point: the project is kept,
+        # packaged and reported as what it is, which `derive` already words correctly —
+        # "there are files and nothing was ever executed".
+        if deadline is not None and (deadline.expired() or deadline.cancelled.is_set()):
+            note(Phase("execution", PhaseStatus.SKIPPED, t("cert.execution.deadline")))
+            status, reason = StatusDeriver(t).derive(tuple(phases), {}, tuple(findings))
+            return Certificate(status, reason, tuple(phases), tuple(findings), {},
+                               repairs=tuple(repairs), interpreter=interpreter, project=project)
+
         if not self._runner.enabled:
             note(Phase("execution", PhaseStatus.SKIPPED, t("cert.execution.disabled")))
             status, reason = StatusDeriver(t).derive(tuple(phases), {}, tuple(findings))

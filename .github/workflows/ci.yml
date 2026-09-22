@@ -68,6 +68,15 @@ jobs:
           PYTHONPATH: src
         run: python scripts/check_delivery.py
 
+      # A call that hangs must end. `urlopen(timeout=)` bounds one `recv` and every byte
+      # rearms it, so a provider sending one byte a minute never timed out at all — the whole
+      # generation hung with nothing in the process able to stop it. Real sockets on
+      # loopback: no model, no network, no key.
+      - name: A hanging call ends, and a closed tab stops the work
+        env:
+          PYTHONPATH: src
+        run: python scripts/check_deadlines.py
+
       # The isolation invariant, in three lines. One process reads one corpus only because
       # exactly one module resolves the corpus directory; if that spreads, the guarantee that
       # the two agents cannot mix stops being checkable.

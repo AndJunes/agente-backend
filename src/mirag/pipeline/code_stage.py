@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from mirag.core.errors import ModelUnreachableError, OfflineModeError, RateLimitedError
+from mirag.core.errors import (ModelUnreachableError, OfflineModeError, RateLimitedError,
+                               RunStoppedError)
 from mirag.core.timing import Stopwatch
 from mirag.evidence.obligations import ObligationChecker, ObligationStatus
 from mirag.evidence.properties import EvidenceBuilder, SimulationDetector
@@ -50,7 +51,8 @@ class CodeDeliveryStage:
             message = gateway.chat([{"role": "system", "content": system},
                                     {"role": "user", "content": prepared.context}],
                                    tools=[tool] if plan.needs_code else [])
-        except (OfflineModeError, RateLimitedError, ModelUnreachableError) as exc:
+        except (OfflineModeError, RateLimitedError, ModelUnreachableError,
+                RunStoppedError) as exc:
             note(Step("model", StepStatus.ERROR, t("pipeline.model.offline"), clock.ms, Source.EXECUTION))
             run.answer = t("pipeline.model.no_model_answer", error=str(exc))
             return
