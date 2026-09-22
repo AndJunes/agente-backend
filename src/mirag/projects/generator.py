@@ -34,6 +34,18 @@ from mirag.projects.certification import Repairer
 from mirag.projects.dependencies import Finding
 from mirag.projects.model import FILE_KINDS, Project
 
+MAX_PLANNED = 16
+"""Files a blueprint may plan. The cap that makes "every planned file was delivered" a
+promise the generator can actually keep.
+
+Nothing told the model how many to plan, and it planned 36. At the measured ~234 seconds a
+call on a free model, thirty-six files in batches of six is around half an hour that never
+finishes — so the run ended with twelve files, no README, and a project whose imports pointed
+at the twenty-four that were never written.
+
+Sixteen is not a guess at the right architecture; it is the number at which the delivery fits
+in the call budget. Fewer, bigger modules is also better code than thirty-six stubs."""
+
 MAX_CALLS = 16
 """The real ceiling on model calls inside :meth:`ProjectGenerator.generate`.
 
@@ -104,6 +116,42 @@ def _flattened(path: str, content: str) -> str:
             f"newlines inside a tool call, so this is not usable source")
 
 
+def trim_plan(plan: list[dict[str, Any]], cap: int = MAX_PLANNED) -> tuple[list[dict[str, Any]], list[str]]:
+    """The plan cut down to ``cap`` files, and the paths that were dropped.
+
+    Only reached when the model has already been asked twice and went over both times. The
+    alternative is worse in a specific way: an over-long plan cannot be delivered inside the
+    call budget, so it guarantees the INCOMPLETE verdict rather than risking it.
+
+    Trimming BEFORE generation is what makes it safe. `interface_contract` shows the model
+    only the files in the plan, so a dropped file is one the model is never told about and
+    therefore never imports. Trimming afterwards would leave exactly the dangling imports
+    this is trying to avoid.
+
+    What survives, in order: the entrypoint, anything under `tests/`, the README, then the
+    rest in the order the model planned it — because the model put the load-bearing modules
+    first and the ornamental ones last.
+    """
+    if len(plan) <= cap:
+        return plan, []
+
+    def rank(entry: Mapping[str, Any]) -> int:
+        path = str(entry.get("path") or "")
+        if entry.get("kind") == "entrypoint":
+            return 0
+        if path.startswith("tests/"):
+            return 1
+        if path.upper().startswith("README"):
+            return 2
+        return 3
+
+    ordered = sorted(range(len(plan)), key=lambda i: (rank(plan[i]), i))
+    keep = {ordered[i] for i in range(min(cap, len(plan)))}
+    kept = [entry for i, entry in enumerate(plan) if i in keep]
+    dropped = [str(entry.get("path") or "") for i, entry in enumerate(plan) if i not in keep]
+    return kept, dropped
+
+
 def _group_for(entry: Mapping[str, Any]) -> str:
     """The group of a plan entry that came without one, inferred from what it is."""
     path, kind = str(entry.get("path") or ""), str(entry.get("kind") or "")
@@ -126,6 +174,10 @@ MANDATORY PROJECT RULES (set by Mirag, not negotiable):
   file in `tests/`. Without tests there is nothing to verify and the project is delivered FAILED.
 - `test_command` must start with one of the interpreters that EXIST on this machine:
   {interpreters}.
+- AT MOST {max_files} FILES IN THE PLAN. Fewer and larger modules, never one file per class.
+  A plan longer than this is rejected and asked for again — the files past the cap would not
+  be written, and a project whose imports point at files that do not exist is worse than a
+  smaller one that runs.
 - Standard library only, unless the request explicitly asks for something else.
 - File paths are relative, without `..`, with a known extension.
 - Code, identifiers and comments are in English.
@@ -219,6 +271,12 @@ class GenerationResult:
     calls: int = 0
     """Model calls actually spent. Reported rather than assumed, because the number the
     docstring promised and the number the loop spent were never the same."""
+    expected: tuple[str, ...] = ()
+    """Every path the COMPLETED plan asked for.
+
+    It travels to certification because nothing else could: `validate_structure` never reads
+    the plan, so a project missing a third of its files passed structure, passed imports (the
+    delivered files happened to compile), and came out VERIFIED."""
 
 
 StepListener = Callable[[GenerationStep], None]
@@ -258,7 +316,7 @@ class ProjectGenerator:
 
     def contract(self, language_directive: str = "") -> str:
         return HTTP_CONTRACT.format(interpreters=self._interpreters.describe() or "python3",
-                                    language=language_directive)
+                                    max_files=MAX_PLANNED, language=language_directive)
 
     # ── the plan ─────────────────────────────────────────────────────────────
 
@@ -316,6 +374,9 @@ class ProjectGenerator:
             problems.append(catalog.t("generation.problem.no_readme"))
         if not any(f.get("kind") == "entrypoint" for f in plan):
             problems.append(catalog.t("generation.problem.no_entrypoint"))
+        if len(plan) > MAX_PLANNED:
+            problems.append(catalog.t("generation.problem.too_many_files",
+                                      count=len(plan), cap=MAX_PLANNED))
         command = (spec or {}).get("test_command") or ""
         first = command.split()[0] if command.split() else ""
         if first and self._interpreters.resolve(first) is None:
@@ -382,14 +443,30 @@ class ProjectGenerator:
         spec = None
         used = 0
         why: list[str] = []
+        insist = ""
         for attempt in range(SPECIFY_ATTEMPTS):
             why = []
-            message = gateway.chat(messages, tools=[SPECIFY_TOOL], require="specify_project")
+            asked = messages if not insist else [
+                messages[0], {"role": "user", "content": f"{request}\n\n{insist}"}]
+            message = gateway.chat(asked, tools=[SPECIFY_TOOL], require="specify_project")
             used += 1
             spec = first_tool_arguments(message, why, name="specify_project")
-            if spec and isinstance(spec.get("files"), list) and spec["files"]:
+            files = spec.get("files") if isinstance(spec, dict) else None
+            if spec and isinstance(files, list) and files:
+                # A plan past the cap is asked for again ONCE, told the number it produced and
+                # the number it may have. The files past the cap do not get written, and a
+                # project whose imports point at files that were never written is worse than a
+                # smaller project that runs.
+                if len(files) > MAX_PLANNED and attempt + 1 < SPECIFY_ATTEMPTS:
+                    insist = (f"YOUR PREVIOUS PLAN HAD {len(files)} FILES AND THE CAP IS "
+                              f"{MAX_PLANNED}. Plan it again with at most {MAX_PLANNED}: merge "
+                              f"the small modules, keep the entrypoint, the tests and the README.")
+                    note(GenerationStep("specification", "fallback",
+                                        t("generation.plan_too_big", count=len(files),
+                                          cap=MAX_PLANNED), {"planned": len(files)}))
+                    continue
                 break
-            if spec is not None and not (spec.get("files") or []):
+            if spec is not None and not (files or []):
                 why.append("the blueprint arrived with no files in it")
             if attempt + 1 < SPECIFY_ATTEMPTS:
                 note(GenerationStep("specification", "fallback", t("generation.no_plan_retry")))
@@ -412,6 +489,10 @@ class ProjectGenerator:
             # and the file disappearing between the blueprint and the project.
             if not str(entry.get("group") or "").strip():
                 entry["group"] = _group_for(entry)
+        plan, dropped = trim_plan(plan)
+        if dropped:
+            note(GenerationStep("plan", "fallback", t("generation.plan_trimmed", count=len(dropped),
+                                                      cap=MAX_PLANNED), {"dropped": dropped}))
         plan, added = self.complete_plan(plan, spec)
         if added:
             note(GenerationStep("plan", "fallback", t("generation.tests_added", count=len(added)), {"added": added}))
@@ -439,6 +520,12 @@ class ProjectGenerator:
                             {"spec": {k: v for k, v in spec.items() if k != "files"},
                              "plan": [f.get("path") for f in plan]}))
 
+        # The plan that travels is the COMPLETED one. `complete_plan` returns a new list, so
+        # until now `spec["files"]` was the model's original — without the README and the
+        # tests Mirag adds. Everything downstream that reads the spec (the manifest, the
+        # answer) was reading a plan that had not been true since three lines above.
+        spec["files"] = plan
+        result.expected = tuple(str(f["path"]) for f in plan)
         project = Project(spec.get("name") or "project", spec)
         stopped = ""
         pending = groups_of(plan)

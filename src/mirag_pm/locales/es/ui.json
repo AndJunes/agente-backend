@@ -352,6 +352,7 @@
     "no_download": "No hay descarga: el artefacto no pasó el control de integridad.",
     "status": {
       "GENERATED": "generado",
+      "INCOMPLETE": "incompleto",
       "VALIDATED": "validado",
       "EXECUTED": "ejecutado",
       "TESTED": "probado",

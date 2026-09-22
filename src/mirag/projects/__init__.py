@@ -1,6 +1,9 @@
 """Whole generated projects: model, generation, certification, packaging and artifacts.
 
     GENERATED -> VALIDATED -> EXECUTED -> TESTED -> VERIFIED
+
+Off to the side, not rungs: FAILED (something is broken) and INCOMPLETE (the plan asked for
+files that were never written). Neither is downloadable.
                                               \\-> PARTIAL
                                               \\-> FAILED
 

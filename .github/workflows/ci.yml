@@ -60,6 +60,14 @@ jobs:
           PYTHONPATH: src
         run: python -m mirag_pm.cli coverage --by-domain
 
+      # What was planned is what gets delivered, and a rejected verdict is not downloadable.
+      # Both of these shipped broken: a 36-file plan delivered 12 and came out with a download
+      # button, because nothing downstream of the generator ever compared the two.
+      - name: A project that does not match its plan is not deliverable
+        env:
+          PYTHONPATH: src
+        run: python scripts/check_delivery.py
+
       # The isolation invariant, in three lines. One process reads one corpus only because
       # exactly one module resolves the corpus directory; if that spreads, the guarantee that
       # the two agents cannot mix stops being checkable.

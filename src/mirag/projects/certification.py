@@ -34,6 +34,15 @@ MAX_REPAIRS = 2
 
 
 class ProjectStatus(StrEnum):
+    INCOMPLETE = "INCOMPLETE"
+    """The plan asked for files that were never written.
+
+    Not a rung of the ladder below — it is off to the side, like FAILED. A project missing a
+    third of its modules is not a lesser VERIFIED, it is a project that was not delivered.
+    It used to be indistinguishable from a complete one: `validate_structure` never read the
+    plan, so if the delivered subset happened to compile and its tests passed, the verdict
+    was VERIFIED and the download button appeared."""
+
     GENERATED = "GENERATED"
     VALIDATED = "VALIDATED"
     EXECUTED = "EXECUTED"
@@ -257,6 +266,7 @@ class ProjectCertifier:
         test_command: str | None = None,
         on_phase: PhaseListener | None = None,
         repairer: Repairer | None = None,
+        expected: Sequence[str] = (),
     ) -> Certificate:
         t = catalog
         phases: list[Phase] = []
@@ -279,6 +289,32 @@ class ProjectCertifier:
         if problems:
             return Certificate(ProjectStatus.FAILED, t("cert.reason.structure", problem=problems[0]),
                                tuple(phases), (), {}, project=project)
+
+        # ── 1b. the plan is the contract, and nothing used to check it ───────
+        #
+        # `validate_structure` above checks four things and none of them is "the files that
+        # were planned exist". The generator knows — it puts the list in its own step detail —
+        # but that died in the trace. Measured: a plan of 36 files delivered 12, and because
+        # those 12 happened to compile and import each other cleanly, the project went on to
+        # be packaged with a download button.
+        #
+        # A file that arrived WITHOUT being planned is not a problem: models consolidate two
+        # planned modules into one that carries both, which is usually the better call. It is
+        # noted and allowed.
+        if expected:
+            missing = [path for path in expected if project.get(path) is None]
+            extra = sorted({f.path for f in project.files()} - set(expected))
+            note(Phase("plan", PhaseStatus.FAILED if missing else PhaseStatus.OK,
+                       t("cert.plan.missing", count=len(missing), detail=", ".join(missing[:4]))
+                       if missing else
+                       t("cert.plan.extra", count=len(extra)) if extra else
+                       t("cert.plan.ok", count=len(expected)),
+                       clock.ms))
+            if missing:
+                return Certificate(
+                    ProjectStatus.INCOMPLETE,
+                    t("derive.incomplete", count=len(missing), detail=", ".join(missing[:6])),
+                    tuple(phases), (), {}, project=project)
 
         # ── 2. syntax ────────────────────────────────────────────────────────
         clock.restart()

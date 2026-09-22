@@ -19,6 +19,7 @@ _PROPERTY_ICONS = {
     PropertyStatus.VERIFIED_IN_SIMULATION: "🟡", PropertyStatus.UNVERIFIED: "❔",
 }
 _STATUS_ICONS = {ProjectStatus.VERIFIED: "✅", ProjectStatus.PARTIAL: "❔", ProjectStatus.VALIDATED: "○",
+                 ProjectStatus.INCOMPLETE: "⚠️",
                  ProjectStatus.FAILED: "❌"}
 _PHASE_ICONS = {PhaseStatus.OK: "✅", PhaseStatus.FAILED: "❌", PhaseStatus.LIMITED: "❔", PhaseStatus.SKIPPED: "—"}
 _OBLIGATION_ICONS = {ObligationStatus.COVERED: "✅", ObligationStatus.DECLARED: "❔",
