@@ -21,12 +21,19 @@ HOW CONSISTENCY ACROSS CALLS HOLDS
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
-from mirag.core.errors import (BudgetExceededError, ClientGoneError, DeadlineExceededError,
-                               ForbiddenPathError, ModelUnreachableError, RateLimitedError,
-                               RunStoppedError)
+from mirag.core.errors import (
+    BudgetExceededError,
+    ClientGoneError,
+    DeadlineExceededError,
+    ForbiddenPathError,
+    ModelUnreachableError,
+    RateLimitedError,
+    RunStoppedError,
+)
 from mirag.execution.interpreters import InterpreterRegistry
 from mirag.i18n.catalog import MessageCatalog
 from mirag.llm.gateway import LLMGateway
@@ -78,6 +85,17 @@ _STOP_REASON: dict[type[Exception], str] = {
     ClientGoneError: "generation.abandoned_stopped",
 }
 """Which sentence each stop deserves. They are handled the same and they are not the same."""
+
+CONCURRENT_BATCHES = 4
+"""Batches of one group asked for at the same time.
+
+Four, and the number comes from the provider's own documented limits rather than a guess:
+OpenRouter allows 20 requests a minute on free models and documents no concurrency limit. A
+call measured at 234 seconds is 0.25 requests a minute — four at once is still a twentieth of
+what is allowed, with room for the retries and the repairs that come later.
+
+It is not higher because the gain flattens: a plan is rarely more than four batches deep in
+one group, and each concurrent call is another output budget being spent at once."""
 
 GROUP_BATCH = 6
 """Files asked for in one call.
@@ -602,15 +620,58 @@ class ProjectGenerator:
                 # In batches, because a model has an output budget and twenty files do not fit
                 # in it. Asked for all twenty it wrote three good ones rather than twenty bad
                 # ones, which is the right call — so it is asked for a number that fits.
-                batch = missing[:GROUP_BATCH]
-                wanted = "\n".join(f"  {f['path']} — {f.get('purpose', '')}" for f in batch)
-                try:
+                #
+                # And SEVERAL AT ONCE. Sequentially, a 36-file plan is six batches at the
+                # measured 234 seconds each — nearly half an hour, which is why a file cap
+                # looked like the answer and was not. OpenRouter documents 20 requests a
+                # minute for free models and no concurrency limit at all; at one call every
+                # 234 seconds we were using 0.25 of that 20. The waiting was never the
+                # provider's rule, it was ours.
+                #
+                # The batches are independent by construction: `interface_contract` is built
+                # from the PLAN, and files inside one batch cannot see each other's bodies in
+                # the sequential version either. Groups stay in order, because `domain`
+                # imports `core`.
+                room = max(1, (ceiling if placed or _attempt else MAX_CALLS) - used)
+                batches = [missing[i:i + GROUP_BATCH] for i in range(0, len(missing), GROUP_BATCH)]
+                batches = batches[:min(CONCURRENT_BATCHES, room)]
+                system = f"{contract}\n\n{self.interface_contract(plan, project, group)}"
+
+                def ask(batch: list[dict[str, Any]], system: str = system,
+                        group: str = group) -> tuple[dict[str, Any], list[str]]:
+                    """One batch. Returns what came back; writes nothing shared.
+
+                    `system` and `group` are bound as defaults rather than captured: the
+                    workers run inside this iteration so a late-bound closure would happen to
+                    be correct, and "happens to be correct" is how the next person moving this
+                    line introduces a bug that only shows up under concurrency.
+                    """
+                    wanted = "\n".join(f"  {f['path']} — {f.get('purpose', '')}" for f in batch)
+                    mine: list[str] = []
                     message = gateway.chat([
-                        {"role": "system",
-                         "content": f"{contract}\n\n{self.interface_contract(plan, project, group)}"},
-                        {"role": "user", "content": f"Write the COMPLETE content of these files of the group "
-                                                    f"'{group}':\n{wanted}"},
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": f"Write the COMPLETE content of these files "
+                                                    f"of the group '{group}':\n{wanted}"},
                     ], tools=[DELIVER_GROUP_TOOL], require="deliver_group")
+                    return first_tool_arguments(message, mine, name="deliver_group") or {}, mine
+
+                delivered: list[dict[str, Any]] = []
+                try:
+                    if len(batches) == 1:
+                        data, mine = ask(batches[0])
+                        used += 1
+                        delivered.append(data)
+                        reasons.extend(mine)
+                    else:
+                        with ThreadPoolExecutor(max_workers=len(batches)) as pool:
+                            # Results are collected IN ORDER and applied afterwards, from this
+                            # thread. `project.add` was written for a single writer, and two
+                            # batches landing at once is not a race worth having for the sake
+                            # of a few milliseconds.
+                            for data, mine in pool.map(ask, batches):
+                                used += 1
+                                delivered.append(data)
+                                reasons.extend(mine)
                 except (BudgetExceededError, RateLimitedError, ModelUnreachableError,
                         RunStoppedError) as exc:
                     # Eleven files already exist. Letting this out of `generate` threw them
@@ -629,11 +690,13 @@ class ProjectGenerator:
                                           reason=stopped[:120]),
                                         {"cause": stopped, "kind": type(exc).__name__}))
                     break
-                used += 1
-                data = first_tool_arguments(message, reasons, name="deliver_group") or {}
-                files = _files_of(data)
-                if not files:
-                    reasons.append(f"the tool call brought no files: keys {sorted(data)}")
+
+                files = {}
+                for data in delivered:
+                    batch_files = _files_of(data)
+                    if not batch_files:
+                        reasons.append(f"a batch brought no files: keys {sorted(data)}")
+                    files.update(batch_files)
                 for path, content in files.items():
                     # The schema says string; a model can still send null for an empty file. A
                     # None used to raise TypeError out of the whole generation, and an int became

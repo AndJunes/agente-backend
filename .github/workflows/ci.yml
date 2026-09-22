@@ -85,6 +85,14 @@ jobs:
           PYTHONPATH: src
         run: python scripts/check_repair.py
 
+      # The batches of a group go at once. Concurrency is cheap — OpenRouter allows 20
+      # requests a minute and a call takes 234 seconds — but correctness is not: one writer
+      # for the project, exact call counting, no thread left behind.
+      - name: Batches run at once without losing files or miscounting calls
+        env:
+          PYTHONPATH: src
+        run: python scripts/check_parallel.py
+
       # The isolation invariant, in three lines. One process reads one corpus only because
       # exactly one module resolves the corpus directory; if that spreads, the guarantee that
       # the two agents cannot mix stops being checkable.
