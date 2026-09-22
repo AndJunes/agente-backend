@@ -23,6 +23,7 @@ from typing import Any
 from mirag.container import Container
 from mirag.core.errors import OfflineModeError
 from mirag.llm.messages import first_tool_arguments, function_tool
+from mirag.llm.models import ANY_TOOL
 
 from mirag_pm.audit import CitationAuditor
 
@@ -208,7 +209,8 @@ class PmWorkflow:
         content = f"{context}\n\n=== THE IDEA ===\n{idea}\n\n=== WHAT THEY ANSWERED ===\n{answered}"
         return self._attempt(
             lambda insist: self._plan_or_questions(
-                self._ask(locale, instruction + insist, content, tools, require=None), version=1),
+                self._ask(locale, instruction + insist, content, tools, require=ANY_TOOL),
+                version=1),
         )
 
     def revise(self, payload: Mapping[str, Any], locale: str) -> dict[str, Any]:

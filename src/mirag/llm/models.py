@@ -16,6 +16,14 @@ from mirag.core.errors import ModelUnreachableError, RateLimitedError
 RETRYABLE = frozenset({429, 500, 502, 503, 504})
 """Statuses worth asking again about: the provider's problem, not the request's."""
 
+ANY_TOOL = "*"
+"""``require="*"`` means one of the offered tools, no matter which — `tool_choice: required`.
+
+Distinct from naming one, and from naming none. A turn where two answers are both correct
+cannot name one, and naming none is not the same as leaving it open: with no `tool_choice`
+at all a model was observed calling `find_skill`, which was not among the tools it was given
+that turn — it had read the name in the retrieved context and invented the call."""
+
 ATTEMPTS = 3
 BACKOFF_S = (2.0, 6.0)
 """Waits between attempts. Short, because a person is watching a progress list, and free
@@ -149,7 +157,14 @@ class OpenRouterChatModel:
             # request in prose has not failed at reasoning — it has answered a different
             # question — and on a free provider that happens often enough to look like the
             # agent is broken. `tool_choice` is what the field is for.
-            if require:
+            if require == ANY_TOOL:
+                # "call one of the tools I gave you, I do not mind which". The case for it is
+                # a turn with two valid answers — the PM's `plan` may legitimately deliver a
+                # plan OR ask another round — where naming one is wrong and naming none let
+                # the model call `find_skill`, a tool it had merely READ ABOUT in its own
+                # context and which was not offered in that turn at all.
+                body["tool_choice"] = "required"
+            elif require:
                 body["tool_choice"] = {"type": "function", "function": {"name": require}}
         request = urllib.request.Request(
             self._url,
