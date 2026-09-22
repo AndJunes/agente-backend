@@ -174,7 +174,8 @@
       "missing_init": "{package}/ has no __init__.py"
     },
     "syntax": {
-      "ok": "every file compiles"
+      "ok": "every file compiles",
+      "repaired": "it compiles after repair {attempt}"
     },
     "imports": {
       "broken": "{count} broken imports",
@@ -184,6 +185,7 @@
     },
     "repair": {
       "imports": "{count} files touched because of broken imports",
+      "syntax": "{count} files touched because they do not compile",
       "tests": "{count} files touched because of failing tests"
     },
     "execution": {

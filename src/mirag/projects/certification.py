@@ -116,6 +116,24 @@ def validate_structure(project: Project, catalog: MessageCatalog) -> list[str]:
     return problems
 
 
+SYNTAX_WHERE = re.compile(r"^([^\s:]+\.\w+):(\d+):")
+"""`app/api.py:43: SyntaxError: ...` — the file and line the checker put at the front."""
+
+
+def _as_findings(error: ExecutionResult) -> tuple[Finding, ...]:
+    """The syntax failure as the one thing the repairer takes.
+
+    The repairer asks for `Finding`s because that is what the dependency analyzer produces,
+    and it uses exactly three fields of them: which file, which line, and what is wrong. A
+    syntax error has all three — it just had no way to say so, which is the only reason it
+    was never repaired.
+    """
+    found = SYNTAX_WHERE.match(error.detail or "")
+    return (Finding(kind="syntax_error", severity=Severity.ERROR,
+                    file=found.group(1) if found else "", line=int(found.group(2)) if found else 0,
+                    detail=error.detail or "the file does not compile"),)
+
+
 ENTRYPOINT_NAMES = ("create_server", "crear_servidor", "create_app", "crear_app", "make_server")
 ENTRYPOINT = re.compile(r"^\s*(?:async\s+)?def\s+(" + "|".join(ENTRYPOINT_NAMES) + r")\s*\(", re.MULTILINE)
 """What the CRUD probe imports and calls.
@@ -267,9 +285,33 @@ class ProjectCertifier:
         syntax_error = self._syntax.check(project.as_text_mapping())
         note(Phase("syntax", PhaseStatus.FAILED if syntax_error else PhaseStatus.OK,
                    syntax_error.describe(t) if syntax_error else t("cert.syntax.ok"), clock.ms))
+
+        # Repaired, like imports and tests below. This used to return on the spot, and a
+        # syntax error is the ONE failure most worth repairing: measured, a real ten-file
+        # project was lost to a single unclosed parenthesis in one test file, cut off because
+        # the model hit its output budget. Nine good files were thrown away, certification
+        # stopped before imports, and a download button appeared over a project that cannot
+        # be imported. The repairer was sitting right there, already written.
+        if syntax_error and repairer:
+            for attempt in range(1, MAX_REPAIRS + 1):
+                clock.restart()
+                repaired, changed, cause = repairer(project, _as_findings(syntax_error), "", attempt)
+                repairs.append({"attempt": attempt, "files": list(changed), "cause": cause,
+                                "motive": "syntax"})
+                note(Phase(f"repair:{attempt}", PhaseStatus.OK if changed else PhaseStatus.FAILED,
+                           t("cert.repair.syntax", count=len(changed)), clock.ms))
+                if not changed:
+                    break
+                project = repaired
+                syntax_error = self._syntax.check(project.as_text_mapping())
+                if not syntax_error:
+                    note(Phase("syntax", PhaseStatus.OK, t("cert.syntax.repaired", attempt=attempt),
+                               clock.ms))
+                    break
+
         if syntax_error:
             return Certificate(ProjectStatus.FAILED, t("cert.reason.syntax", detail=syntax_error.detail[:120]),
-                               tuple(phases), (), {}, project=project)
+                               tuple(phases), (), {}, repairs=tuple(repairs), project=project)
 
         # ── 3. imports and dependencies ──────────────────────────────────────
         clock.restart()
