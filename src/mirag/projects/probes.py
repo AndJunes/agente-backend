@@ -134,15 +134,31 @@ print("DEP:_probe:OK", flush=True)
 
 def tests_probe(start_dir: str = "tests", minimum: int = 1) -> dict[str, str]:
     """A unittest runner that emits one marker per test. It takes away from the model the
-    duty of printing them, which is the number one cause of NO EVIDENCE."""
+    duty of printing them, which is the number one cause of NO EVIDENCE.
+
+    Two things in here were wrong and both were silent.
+
+    The marker id came from `str(test).split()[0]`, which is the bare METHOD name — so
+    `TestRepository.test_eliminar` and `TestService.test_eliminar` produced the same marker
+    and one overwrote the other's verdict. Measured on a real project: 65 tests ran and 55
+    markers came out. It is `test.id()` now, which is the full dotted path.
+
+    And `discover()` raising — the ordinary `ImportError: Start directory is not importable` —
+    left a bare traceback, no markers and exit 1, indistinguishable downstream from thirty-five
+    failing assertions. The two have opposite fixes. It says which one it is now.
+    """
     return {f"{PROBE_PREFIX}tests.py": f'''\
 """Runs the project tests and emits one marker per test. Written by Mirag."""
-import os, sys, unittest
+import os, sys, traceback, unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 class Markers(unittest.TextTestResult):
     def _id(self, test):
-        return str(test).split()[0].replace(".", "_")[:60] or "unnamed"
+        # The FULL id, not the method name: two classes routinely share a method name, and
+        # a shared marker means one test silently overwrites the other's verdict. Kept from
+        # the right, because what distinguishes them is the tail.
+        full = test.id().replace(".", "_")
+        return (full[-80:] if len(full) > 80 else full) or "unnamed"
     def addSuccess(self, test):
         super().addSuccess(test); print(f"TEST:{{self._id(test)}}:PASS", flush=True)
     def addFailure(self, test, err):
@@ -151,13 +167,23 @@ class Markers(unittest.TextTestResult):
         super().addError(test, err); print(f"TEST:{{self._id(test)}}:FAIL", flush=True)
 
 if __name__ == "__main__":
-    suite = unittest.defaultTestLoader.discover({start_dir!r}, top_level_dir=".")
+    try:
+        suite = unittest.defaultTestLoader.discover({start_dir!r}, top_level_dir=".")
+    except Exception:
+        # NOT the same event as a failing assertion, and the fix is the opposite one.
+        print("TEST:test_discovery:FAIL", flush=True)
+        print("PROBE: the tests could not be loaded at all — this is not a failing test, it "
+              "is {start_dir}/ not being importable. Check the package markers and the imports.",
+              flush=True)
+        traceback.print_exc()
+        sys.exit(1)
     result = unittest.TextTestRunner(resultclass=Markers, verbosity=0).run(suite)
     if result.testsRun < {minimum}:
         # An import that fails inside a silent try leaves 0 tests and exit 0.
         # That is NOT passing: nobody knows what was tested.
         print("TEST:test_coverage:FAIL", flush=True)
-        print(f"{{result.testsRun}} tests ran and at least {minimum} were expected", flush=True)
+        print(f"PROBE: {{result.testsRun}} tests ran and at least {minimum} were expected",
+              flush=True)
         sys.exit(1)
     sys.exit(1 if (result.failures or result.errors) else 0)
 '''}
