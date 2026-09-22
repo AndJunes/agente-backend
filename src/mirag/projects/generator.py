@@ -86,6 +86,12 @@ _STOP_REASON: dict[type[Exception], str] = {
 }
 """Which sentence each stop deserves. They are handled the same and they are not the same."""
 
+PREVIEW_BYTES = 400_000
+"""How much generated source travels with the steps, before the paths go without their text.
+
+Matches the artifact's own ceiling. A project is capped at 400 kB in total, so in practice
+every file's text fits and the cap only bites on something pathological."""
+
 CONCURRENT_BATCHES = 4
 """Batches of one group asked for at the same time.
 
@@ -574,6 +580,10 @@ class ProjectGenerator:
         spec["files"] = plan
         result.expected = tuple(str(f["path"]) for f in plan)
         project = Project(spec.get("name") or "project", spec)
+        shown = 0
+        """Bytes of preview sent so far. Past the cap the paths still travel and the text does
+        not — the same trade the artifact makes, and for the same reason: a response of tens of
+        megabytes is not a delivery."""
         stopped = ""
         pending = groups_of(plan)
         for index, group in enumerate(pending):
@@ -743,9 +753,27 @@ class ProjectGenerator:
             if not placed and not early and reasons:
                 summary += f" · {reasons[0][:90]}"
             status = "error" if not (placed or early) else ("fallback" if never else "executed")
+            # The CONTENT travels with the step, not only the paths.
+            #
+            # The file tree used to appear all at once in the closing `done` event, so a
+            # person watching a generation saw a spinner for ten or twenty minutes and then
+            # everything. Sending what each group wrote as it is written lets the panel fill
+            # up while the agent works.
+            #
+            # It is a preview and `done` remains authoritative: a repair can replace any of
+            # these before the project is certified, and the two are allowed to differ.
+            # Nothing here reaches the persisted trace, which records errors and totals, not
+            # step details.
+            wrote = {}
+            for path in placed:
+                file = project.get(path)
+                if file is None:
+                    continue
+                shown += file.size
+                wrote[path] = file.text if shown <= PREVIEW_BYTES else None
             note(GenerationStep(f"generation:{group}", status, summary,
                                 {"files": placed, "delivered_earlier": early, "rejected": rejected,
-                                 "missing": never, "reasons": reasons,
+                                 "missing": never, "reasons": reasons, "wrote": wrote,
                                  "requested": [f["path"] for f in own], "calls": used}))
 
         result.project = project if project.files() else None
