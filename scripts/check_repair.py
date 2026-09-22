@@ -24,6 +24,12 @@ What this checks, with no model and no network:
   2. From a failing test, the import graph reaches the module that actually broke.
   3. The repairer is shown that module, not only the test.
   4. A model that returns a path it was never shown has it refused.
+  5. A repair that cannot possibly land is not paid for. With nothing of the project
+     resolvable there is no body to show and the allow-list is empty, so every path coming
+     back would be refused — a measured run spent 61 seconds, 13% of its wall clock, on
+     exactly that. No call is made now.
+  6. The cause travels to the row a person reads. It was always computed and always thrown
+     away, which is why that 61-second row said "0 files touched" and nothing else.
 """
 
 from __future__ import annotations
@@ -193,6 +199,31 @@ def main() -> int:
     check("the invented file was not written", repaired.get("vivero/never_shown.py") is None)
     check("the real fix was applied", "vivero/shared/database.py" in changed, str(changed))
     check("the refusal is reported", "refused" in cause, cause[:80])
+
+    print("\n=== 6. a repair that cannot land is not paid for ===")
+    # With nothing of the project resolvable there are no bodies to show and the allow-list is
+    # empty, so every path that came back would be refused and the whole answer discarded. A
+    # measured run spent 61 seconds — 13% of its wall clock — on exactly that. No call now.
+    silent = Recorder()
+    repair_empty = ProjectGenerator(InterpreterRegistry()).repairer(
+        "", LLMGateway(silent, Budget(), offline=False), analyzer=analyzer)
+    _, changed_empty, cause_empty = repair_empty(Project("vacio"), findings, OUTPUT, 1)
+    check("no model call was made", not silent.user, silent.user[:60])
+    check("nothing was changed", changed_empty == ())
+    check("the cause says why", "could be tied to the failure" in cause_empty, cause_empty)
+
+    print("\n=== 7. the cause reaches the row a person reads ===")
+    from mirag.i18n.catalog import MessageCatalog
+    from mirag.projects.certification import _repair_phase
+
+    catalog = MessageCatalog("es", {"cert.repair.tests": "{count} archivos tocados"})
+    declined = _repair_phase(catalog, "tests", 1, (), "the model returned no file", 61_011.0)
+    check("a declined repair carries the cause in the detail",
+          "returned no file" in declined.detail, declined.detail)
+    check("and keeps it raw as the output", declined.output == "the model returned no file")
+    worked = _repair_phase(catalog, "tests", 1, ("a.py",), "one connection", 10.0)
+    check("a repair that worked stays a clean count",
+          "one connection" not in worked.detail, worked.detail)
 
     print("\n" + ("ALL PASS" if not failures else f"{len(failures)} FAILED: {failures}"))
     return 1 if failures else 0

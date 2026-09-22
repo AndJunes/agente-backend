@@ -796,6 +796,12 @@ class ProjectGenerator:
                    attempt: int) -> tuple[Project, tuple[str, ...], str]:
             involved = _involved(project, errors, output, analyzer)
             found = [(path, file) for path in involved if (file := project.get(path)) is not None]
+            if not found:
+                # A call that CANNOT land, so it is not made. With nothing resolved there are no
+                # bodies to show and `allowed` below is empty, which means every path the model
+                # returns is refused and the whole answer is discarded — measured once at 61
+                # seconds, 13% of that run, for a guaranteed-empty result.
+                return project, (), "no file of the project could be tied to the failure"
             bodies = "\n\n".join(f"--- {path}\n{file.text}" for path, file in found)
             diagnosis = "\n".join(f"  {f.file}:{f.line} {f.detail}" for f in errors)
             motive = errors[0].kind if errors else "failure"

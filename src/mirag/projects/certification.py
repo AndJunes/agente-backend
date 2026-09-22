@@ -90,6 +90,22 @@ class Phase:
     """The RAW output when it executed something."""
 
 
+def _repair_phase(t: MessageCatalog, motive: str, attempt: int, changed: Sequence[str],
+                  cause: str, ms: float) -> Phase:
+    """The row for one repair attempt — and WHY, when it changed nothing.
+
+    `repair()` has always computed the cause and handed it back; only the structured
+    `repairs` record kept it, so the row a person actually reads said "0 files touched" and
+    stopped there. A measured run spent 61 seconds on such a row and there was no way, after
+    the fact, to tell "the model returned nothing" from "it returned paths it was never
+    shown" — two failures with different fixes. The count is the summary, the cause is the
+    detail, and the detail is the part worth keeping.
+    """
+    detail = t("cert.repair." + motive, count=len(changed))
+    return Phase(f"repair:{motive}:{attempt}", _REPAIR_STATUS[bool(changed)],
+                 detail if changed else f"{detail} — {cause or 'sin causa declarada'}", ms, cause)
+
+
 @dataclass(frozen=True, slots=True)
 class Certificate:
     status: ProjectStatus
@@ -435,8 +451,7 @@ class ProjectCertifier:
                 repaired, changed, cause = repairer(project, _as_findings(syntax_error), "", attempt)
                 repairs.append({"attempt": attempt, "files": list(changed), "cause": cause,
                                 "motive": "syntax"})
-                note(Phase(f"repair:syntax:{attempt}", _REPAIR_STATUS[bool(changed)],
-                           t("cert.repair.syntax", count=len(changed)), clock.ms))
+                note(_repair_phase(t, "syntax", attempt, changed, cause, clock.ms))
                 if not changed:
                     break
                 project = repaired
@@ -466,8 +481,7 @@ class ProjectCertifier:
                 clock.restart()
                 repaired, changed, cause = repairer(project, errors, "", attempt)
                 repairs.append({"attempt": attempt, "files": list(changed), "cause": cause, "motive": "imports"})
-                note(Phase(f"repair:imports:{attempt}", _REPAIR_STATUS[bool(changed)],
-                           t("cert.repair.imports", count=len(changed)), clock.ms))
+                note(_repair_phase(t, "imports", attempt, changed, cause, clock.ms))
                 if not changed:
                     break
                 project = repaired
@@ -549,8 +563,7 @@ class ProjectCertifier:
                 repaired, changed, cause = repairer(
                     project, failures_as_findings(tests.text, project.paths()), tests.text, attempt)
                 repairs.append({"attempt": attempt, "files": list(changed), "cause": cause, "motive": "tests"})
-                note(Phase(f"repair:tests:{attempt}", _REPAIR_STATUS[bool(changed)],
-                           t("cert.repair.tests", count=len(changed)), clock.ms))
+                note(_repair_phase(t, "tests", attempt, changed, cause, clock.ms))
                 if not changed:
                     break
                 project = repaired
