@@ -196,21 +196,20 @@ class PmWorkflow:
         tools = [plan_tool()] if last_round else [plan_tool(), questionnaire_tool()]
 
         context = self._context(idea, locale, "write-requirements")
-        message = self._ask(
-            locale,
-            "Produce the plan by calling deliver_plan. " + (
-                "This is the last round: whatever is still unresolved goes in openQuestions, "
-                "which is what that field is for. Do not ask again — say what you do not know "
-                "and plan around it."
-                if last_round else
-                "If the answers have opened a decision you still cannot make, call ask_questions "
-                "instead — a second round is a normal outcome, not a failure. Ask about the "
-                "PRODUCT, never about what you should be producing: that is already decided."
-            ) + " " + SCHEMA_NOTE,
-            f"{context}\n\n=== THE IDEA ===\n{idea}\n\n=== WHAT THEY ANSWERED ===\n{answered}",
-            tools,
+        instruction = "Produce the plan by calling deliver_plan. " + (
+            "This is the last round: whatever is still unresolved goes in openQuestions, "
+            "which is what that field is for. Do not ask again — say what you do not know "
+            "and plan around it."
+            if last_round else
+            "If the answers have opened a decision you still cannot make, call ask_questions "
+            "instead — a second round is a normal outcome, not a failure. Ask about the "
+            "PRODUCT, never about what you should be producing: that is already decided."
+        ) + " " + SCHEMA_NOTE
+        content = f"{context}\n\n=== THE IDEA ===\n{idea}\n\n=== WHAT THEY ANSWERED ===\n{answered}"
+        return self._attempt(
+            lambda insist: self._plan_or_questions(
+                self._ask(locale, instruction + insist, content, tools, require=None), version=1),
         )
-        return self._plan_or_questions(message, version=1)
 
     def revise(self, payload: Mapping[str, Any], locale: str) -> dict[str, Any]:
         """A plan plus a rejection -> the next version, never an edit of the last."""
@@ -220,16 +219,18 @@ class PmWorkflow:
         feedback = _text(payload, "feedback")
         version = int(previous.get("version") or 1)
         context = self._context(feedback, locale, "revise-plan")
-        message = self._ask(
-            locale,
+        instruction = (
             "The user rejected this plan for the reason given. Produce the NEXT VERSION with "
             "deliver_plan. Read the feedback as a constraint, not as something to append: a "
-            "rejection often invalidates a decision made earlier in the plan. " + SCHEMA_NOTE,
-            f"{context}\n\n=== THE PLAN THEY REJECTED ===\n{_render(previous)}"
-            f"\n\n=== WHY ===\n{feedback}",
-            [plan_tool()],
+            "rejection often invalidates a decision made earlier in the plan. " + SCHEMA_NOTE
         )
-        result = self._plan_or_questions(message, version=version + 1)
+        content = (f"{context}\n\n=== THE PLAN THEY REJECTED ===\n{_render(previous)}"
+                   f"\n\n=== WHY ===\n{feedback}")
+        result = self._attempt(
+            lambda insist: self._plan_or_questions(
+                self._ask(locale, instruction + insist, content, [plan_tool()], require="deliver_plan"),
+                version=version + 1),
+        )
         if "version" in result:
             result["revisionOf"] = {"version": version, "feedback": feedback}
         return result
@@ -249,7 +250,26 @@ class PmWorkflow:
             parts.append(found.invoke(task=skill).text)
         return "\n\n---\n\n".join(parts)
 
-    def _ask(self, locale: str, instruction: str, content: str, tools: list[dict[str, Any]]) -> dict[str, Any]:
+    @staticmethod
+    def _attempt(once: Callable[[str], dict[str, Any]]) -> dict[str, Any]:
+        """Run ``once``, and run it again with a blunter instruction if it did not deliver.
+
+        The project generator has carried this reasoning from the start, with a comment
+        saying free providers drop calls; it was never applied to this half, where a single
+        empty `deliver_plan` came back through the API as a finished plan with nothing in it.
+        The second attempt is not the same request: it is told what went wrong, because
+        repeating a prompt a model just failed is a reasonable way to fail twice.
+        """
+        try:
+            return once("")
+        except RuntimeError as first:
+            return once(
+                f"\n\nYOUR PREVIOUS ANSWER WAS REJECTED: {first}. Call the tool, and put the "
+                f"real content INSIDE the call — an empty call is worse than a short one."
+            )
+
+    def _ask(self, locale: str, instruction: str, content: str, tools: list[dict[str, Any]],
+             require: str | None = None) -> dict[str, Any]:
         catalog = self._container.i18n.catalog(locale)
         system = (
             f"{self._container.settings.system_prompt}\n\n{instruction}\n\n"
@@ -258,7 +278,7 @@ class PmWorkflow:
         gateway = self._container.gateways.create()
         try:
             return gateway.chat([{"role": "system", "content": system},
-                                 {"role": "user", "content": content}], tools=tools)
+                                 {"role": "user", "content": content}], tools=tools, require=require)
         except OfflineModeError as error:
             # Said plainly rather than as a 500: the offline lock is a deliberate state, and
             # these three operations have no scripted double to fall back on.
@@ -268,15 +288,25 @@ class PmWorkflow:
             ) from error
 
     def _plan_or_questions(self, message: Mapping[str, Any], version: int) -> dict[str, Any]:
-        arguments = first_tool_arguments(dict(message))
-        if arguments is None:
-            raise RuntimeError("the model answered in prose where a plan was required")
-        if questions := _questions(arguments.get("questions")):
-            return {"reason": str(arguments.get("reason") or ""), "questions": questions}
-        if "questions" in arguments and "purpose" not in arguments:
-            # It meant to ask and produced nothing askable. Saying so beats returning an empty
-            # questionnaire, which the screen cannot render, or a plan that was never written.
+        why: list[str] = []
+        # Read by NAME, and the questionnaire first. Taking `tool_calls[0]` whatever it was
+        # meant that when the model emitted both — which it does, having been offered both —
+        # whichever came first won, and a `deliver_plan` sitting second was never seen.
+        asked = first_tool_arguments(dict(message), why, name="ask_questions")
+        if asked is not None:
+            if questions := _questions(asked.get("questions")):
+                return {"reason": str(asked.get("reason") or ""), "questions": questions}
             raise RuntimeError("the model opened a questionnaire with no usable questions")
+        arguments = first_tool_arguments(dict(message), why, name="deliver_plan")
+        if arguments is None:
+            raise RuntimeError(
+                "the model produced neither a plan nor a questionnaire" + (f": {why[0]}" if why else "")
+            )
+        if empty := _empty_plan(arguments):
+            # An empty `deliver_plan` used to come back through the API as a plan with 200:
+            # no purpose, no entities, no flows, and one openQuestion saying the plan declared
+            # nothing open. That reads as a finished document and is the absence of one.
+            raise RuntimeError(f"the model called deliver_plan with nothing in it: {empty}")
         return {
             "version": version,
             "purpose": str(arguments.get("purpose") or ""),
@@ -300,6 +330,21 @@ class PmWorkflow:
 
     def _audit(self, *texts: str) -> list[str]:
         return [str(f) for f in self._auditor.audit(*texts)] if self._auditor else []
+
+
+def _empty_plan(arguments: Mapping[str, Any]) -> str:
+    """Why this is not a plan, or ``""``.
+
+    A purpose alone is not enough and neither is a lone list: a plan says what it is for AND
+    names something concrete about the work. Both halves are required because each has been
+    seen without the other.
+    """
+    missing = []
+    if not str(arguments.get("purpose") or "").strip():
+        missing.append("purpose")
+    if not any(_items(arguments.get(field)) for field in ("entities", "roles", "flows", "constraints")):
+        missing.append("entities, roles, flows and constraints are all empty")
+    return "; ".join(missing)
 
 
 def _open_questions(arguments: Mapping[str, Any], audit: Any) -> list[str]:

@@ -24,7 +24,8 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from mirag.core.errors import BudgetExceededError, ForbiddenPathError, RateLimitedError
+from mirag.core.errors import (BudgetExceededError, ForbiddenPathError, ModelUnreachableError,
+                               RateLimitedError)
 from mirag.execution.interpreters import InterpreterRegistry
 from mirag.i18n.catalog import MessageCatalog
 from mirag.llm.gateway import LLMGateway
@@ -69,6 +70,23 @@ def groups_of(plan: Sequence[Mapping[str, Any]]) -> list[str]:
     present = {str(f.get("group") or "") for f in plan}
     extra = sorted(g for g in present if g and g not in GROUPS)
     return [g for g in GROUPS if g in present] + extra
+
+
+LINE_BASED = (".py", ".js", ".ts", ".sql", ".yml", ".yaml", ".toml", ".cfg", ".ini", ".md", ".sh")
+FLAT_AFTER = 200
+"""Characters past which a line-based file with no line break is not a file anyone can use."""
+
+
+def _flattened(path: str, content: str) -> str:
+    """Why this content cannot be a source file, or ``""``.
+
+    Only for formats where a line break carries meaning. JSON, HTML and CSS are legitimately
+    written on one line, and a short module genuinely can be.
+    """
+    if not path.endswith(LINE_BASED) or len(content) <= FLAT_AFTER or "\n" in content:
+        return ""
+    return (f"{path}: {len(content)} characters and not one line break — the model cannot write "
+            f"newlines inside a tool call, so this is not usable source")
 
 
 def _group_for(entry: Mapping[str, Any]) -> str:
@@ -237,22 +255,39 @@ class ProjectGenerator:
         though the request asked for them and the contract marks them mandatory. Generating
         thirteen files and failing them later for "no tests" is expensive and our fault: if we
         know they are missing, they are added. The content is still written by the model.
+
+        The README is here for the same reason and was found the same way. Every prompt this
+        agent is sent through CodeZard asks in its first line for "a README", nothing
+        downstream requires one, and a real 15-file project arrived without it: the `docs`
+        group had nothing planned in it, so it was never even asked for. A project nobody can
+        run is not a delivery, and the run that dropped it reported no problem at all.
         """
         paths = {f.get("path", "") for f in plan}
-        if any(p.startswith("tests/") and p.endswith(".py") for p in paths):
-            return plan, []
         entity = (spec or {}).get("entity") or "api"
         entrypoint = next((f["path"] for f in plan if f.get("kind") == "entrypoint"), "")
         if not entrypoint:
             entrypoint = next((f["path"] for f in plan if f.get("path", "").endswith("main.py")), "")
         added = []
-        for path, purpose in (("tests/__init__.py", "tests package"),
-                              (f"tests/test_{entity}.py", f"full CRUD of {entity} over real HTTP, with unittest")):
-            if path in paths:
-                continue
-            plan = [*plan, {"path": path, "kind": "test", "purpose": purpose, "exports": [], "group": "tests",
-                            "depends_on": [entrypoint] if entrypoint and path.endswith(f"test_{entity}.py") else []}]
-            added.append(path)
+
+        if not any(p.startswith("tests/") and p.endswith(".py") for p in paths):
+            for path, purpose in (("tests/__init__.py", "tests package"),
+                                  (f"tests/test_{entity}.py",
+                                   f"full CRUD of {entity} over real HTTP, with unittest")):
+                if path in paths:
+                    continue
+                plan = [*plan, {"path": path, "kind": "test", "purpose": purpose, "exports": [],
+                                "group": "tests",
+                                "depends_on": [entrypoint] if entrypoint and path.endswith(f"test_{entity}.py")
+                                else []}]
+                added.append(path)
+
+        if not any(p.upper().startswith("README") for p in paths):
+            plan = [*plan, {"path": "README.md", "kind": "doc", "group": "docs", "exports": [],
+                            "depends_on": [entrypoint] if entrypoint else [],
+                            "purpose": "what this is, how to install and RUN it (the exact command), "
+                                       "the endpoints, how to run the tests, and any environment "
+                                       "variable it reads"}]
+            added.append("README.md")
         return plan, added
 
     def validate_plan(self, plan: Sequence[Mapping[str, Any]], spec: Mapping[str, Any] | None,
@@ -262,6 +297,8 @@ class ProjectGenerator:
         paths = [f.get("path", "") for f in plan]
         if not any(p.startswith("tests/") for p in paths):
             problems.append(catalog.t("generation.problem.no_tests"))
+        if not any(p.upper().startswith("README") for p in paths):
+            problems.append(catalog.t("generation.problem.no_readme"))
         if not any(f.get("kind") == "entrypoint" for f in plan):
             problems.append(catalog.t("generation.problem.no_entrypoint"))
         command = (spec or {}).get("test_command") or ""
@@ -422,7 +459,7 @@ class ProjectGenerator:
                         {"role": "user", "content": f"Write the COMPLETE content of these files of the group "
                                                     f"'{group}':\n{wanted}"},
                     ], tools=[DELIVER_GROUP_TOOL], require="deliver_group")
-                except (BudgetExceededError, RateLimitedError) as exc:
+                except (BudgetExceededError, RateLimitedError, ModelUnreachableError) as exc:
                     # Eleven files already exist. Letting this out of `generate` threw them
                     # away and answered with a stack trace; what the user gets instead is the
                     # project that WAS built, with a step saying which group never arrived.
@@ -442,6 +479,16 @@ class ProjectGenerator:
                     if not isinstance(content, str):
                         rejected.append(f"{path}: the content is {type(content).__name__}, not text")
                         continue
+                    if flat := _flattened(path, content):
+                        # Measured: a free model wrote every file of a 15-file project with no
+                        # line breaks at all — `import jsonimport urllib.parse` — because it
+                        # cannot emit `\n` inside a tool-call string. Fifteen files, twelve
+                        # kilobytes, fifteen lines. It packaged, it offered a download, and the
+                        # only sign was one red `syntax` row. Rejecting it here says which file
+                        # and why, and leaves the retry a reason to send with the second ask.
+                        rejected.append(flat)
+                        reasons.append(flat)
+                        continue
                     try:
                         project.add(path, content, kind=self._kind_of(path, plan), group=group)
                         placed.append(path)
@@ -449,14 +496,26 @@ class ProjectGenerator:
                         rejected.append(f"{path}: {exc}")
                 if placed:
                     break
-            summary = t("generation.group_files", count=len(placed))
+            # A model asked for one group hands back a neighbouring file it needed to write
+            # anyway — `core` delivered `models.py`, which the plan had put in `domain`. That
+            # is a good answer, not a mistake, and it left this group with nothing to ask for.
+            # Reporting "0 files · error" for files that EXIST was worse than the old bug it
+            # replaced: it says the generation failed when the project is complete.
+            early = sorted({f["path"] for f in own if project.get(f["path"]) is not None}
+                           - set(placed))
+            if placed:
+                summary = t("generation.group_files", count=len(placed))
+            elif early:
+                summary = t("generation.group_early", count=len(early))
+            else:
+                summary = t("generation.group_files", count=0)
             if rejected:
                 summary += " · " + t("generation.group_rejected", count=len(rejected))
-            if not placed and reasons:
+            if not placed and not early and reasons:
                 summary += f" · {reasons[0][:90]}"
-            note(GenerationStep(f"generation:{group}", "executed" if placed else "error", summary,
-                                {"files": placed, "rejected": rejected, "reasons": reasons,
-                                 "requested": [f["path"] for f in own], "calls": used}))
+            note(GenerationStep(f"generation:{group}", "executed" if placed or early else "error", summary,
+                                {"files": placed, "delivered_earlier": early, "rejected": rejected,
+                                 "reasons": reasons, "requested": [f["path"] for f in own], "calls": used}))
 
         result.project = project if project.files() else None
         result.calls = used

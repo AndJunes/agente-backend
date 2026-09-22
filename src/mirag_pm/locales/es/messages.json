@@ -229,8 +229,10 @@
     "call_cap": "tope de {cap} llamadas alcanzado: este grupo no se generó",
     "group_files": "{count} archivos",
     "group_rejected": "{count} rechazados",
+    "group_early": "{count} archivos que ya había entregado un grupo anterior",
     "problem": {
       "no_tests": "el plano no incluye ningún archivo en tests/: sin tests no hay nada que verificar",
+      "no_readme": "el plano no trae README: un proyecto que nadie puede ejecutar no es una entrega",
       "no_entrypoint": "el plano no marca ningún entrypoint",
       "bad_interpreter": "el comando de test empieza por '{first}' y aquí solo hay {available}"
     },

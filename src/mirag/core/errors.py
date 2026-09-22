@@ -24,6 +24,16 @@ class RateLimitedError(MiragError):
     """
 
 
+class ModelUnreachableError(MiragError):
+    """The call never got to the provider: DNS, TLS, a refused connection, a timeout.
+
+    Distinct from :class:`RateLimitedError`, which means the provider answered and said no.
+    It was nothing at all before: a TLS failure on this machine escaped the handler, the
+    server dropped the connection without a body, and the gateway reported the AGENT as
+    unreachable after sixty seconds. Three machines and the wrong one named.
+    """
+
+
 class OfflineModeError(MiragError):
     """Somebody tried to call the model while the offline lock is on.
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import ssl
 import time
 import urllib.error
 import urllib.request
@@ -10,7 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
-from mirag.core.errors import RateLimitedError
+from mirag.core.errors import ModelUnreachableError, RateLimitedError
 
 RETRYABLE = frozenset({429, 500, 502, 503, 504})
 """Statuses worth asking again about: the provider's problem, not the request's."""
@@ -41,26 +42,6 @@ class ChatModel(Protocol):
     name: str
     simulated: bool
     """``True`` when the decision does not come from a real model (a script)."""
-
-    def _send(self, request: urllib.request.Request) -> dict[str, Any]:
-        """The call, retried while the provider is the one saying no."""
-        last = ""
-        for attempt in range(ATTEMPTS):
-            try:
-                with self._open(request, timeout=self._timeout_s) as response:
-                    return json.loads(response.read())
-            except urllib.error.HTTPError as error:
-                if error.code not in RETRYABLE:
-                    raise
-                last = _detail(error)
-                if attempt + 1 == ATTEMPTS:
-                    break
-                time.sleep(_wait_for(error, attempt))
-        raise RateLimitedError(
-            f"{self.name}: the provider refused {ATTEMPTS} times — {last}. This is a limit on "
-            f"the provider's side, not a problem with the request. Free models are rate-limited "
-            f"per minute; wait, or set MIRAG_MODEL to another one."
-        )
 
     def complete(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None,
                  require: str | None = None) -> LLMResponse: ...
@@ -99,10 +80,23 @@ class OpenRouterChatModel:
     def _send(self, request: urllib.request.Request) -> dict[str, Any]:
         """The call, retried while the provider is the one saying no."""
         last = ""
+        unreachable = ""
         for attempt in range(ATTEMPTS):
             try:
                 with self._open(request, timeout=self._timeout_s) as response:
-                    return json.loads(response.read())
+                    payload = json.loads(response.read())
+                # A 200 carrying an error body. OpenRouter does this for some upstream
+                # failures — "Service temporarily overloaded" arrived this way while testing —
+                # and it was judged AFTER `_send` returned, outside the retry, so the most
+                # transient failure of the three was the only one asked about once. It is the
+                # same event as a 503 with a different status line.
+                if not (detail := _unusable(payload)):
+                    return payload
+                last = detail
+                if attempt + 1 == ATTEMPTS:
+                    break
+                time.sleep(BACKOFF_S[min(attempt, len(BACKOFF_S) - 1)])
+                continue
             except urllib.error.HTTPError as error:
                 if error.code not in RETRYABLE:
                     raise
@@ -110,6 +104,25 @@ class OpenRouterChatModel:
                 if attempt + 1 == ATTEMPTS:
                     break
                 time.sleep(_wait_for(error, attempt))
+            except (urllib.error.URLError, TimeoutError, OSError) as error:
+                # Never caught before, so a DNS failure, a refused connection or — measured on
+                # this machine — a certificate that could not be verified escaped every frame
+                # up to `socketserver`, which answers by closing the socket with no body.
+                #
+                # A TLS failure will not fix itself on the second attempt, so it is not
+                # retried: only the ones that plausibly pass next time are.
+                reason = getattr(error, "reason", error)
+                unreachable = f"{type(error).__name__}: {reason}"
+                if isinstance(reason, ssl.SSLError) or attempt + 1 == ATTEMPTS:
+                    break
+                time.sleep(BACKOFF_S[min(attempt, len(BACKOFF_S) - 1)])
+        if unreachable:
+            raise ModelUnreachableError(
+                f"{self.name}: the provider could not be reached at {self._url} — {unreachable}. "
+                f"This is the network between here and OpenRouter, not the request. If it is a "
+                f"certificate, this Python has no CA bundle: run Install Certificates.command, "
+                f"or set SSL_CERT_FILE."
+            )
         raise RateLimitedError(
             f"{self.name}: the provider refused {ATTEMPTS} times — {last}. This is a limit on "
             f"the provider's side, not a problem with the request. Free models are rate-limited "
@@ -146,13 +159,7 @@ class OpenRouterChatModel:
                 "Content-Type": "application/json",
             },
         )
-        payload = self._send(request)
-        if "choices" not in payload:
-            # A 200 carrying an error body. OpenRouter does this for some upstream failures,
-            # and reading `choices` straight would raise a KeyError three frames away from
-            # the cause.
-            detail = (payload.get("error") or {}).get("message") or str(payload)[:200]
-            raise RateLimitedError(f"{self.name}: the provider answered without a completion — {detail}")
+        payload = self._send(request)  # `_send` has already established it is usable
         usage = payload.get("usage") or {}
         return LLMResponse(
             message=payload["choices"][0]["message"],
@@ -162,6 +169,33 @@ class OpenRouterChatModel:
                 cost_usd=float(usage.get("cost", 0.0) or 0.0),
             ),
         )
+
+
+def _unusable(payload: Any) -> str:
+    """Why this 200 cannot be read as a completion, or ``""`` when it can.
+
+    `choices` present but EMPTY is its own case and was an IndexError three frames from the
+    cause: `poolside/laguna-s-2.1:free` returns it under load.
+    """
+    if not isinstance(payload, dict):
+        return f"the body is a {type(payload).__name__}, not an object"
+    choices = payload.get("choices")
+    if choices is None:
+        inner = payload.get("error") or {}
+        message = inner.get("message") if isinstance(inner, dict) else None
+        return str(message or str(payload)[:200]) or "no choices and no error either"
+    if not isinstance(choices, list) or not choices:
+        return "the provider answered with an empty list of choices"
+    if not isinstance(choices[0], dict) or not isinstance(message := choices[0].get("message"), dict):
+        return "the first choice carries no message"
+    # A 200, a choice, a message — and nothing in it. Free providers return this under load,
+    # and it passed every check here because the SHAPE was right. Downstream it read as "the
+    # model did not call the tool; it answered 0 characters of text", which blames the model
+    # for a turn it never took. It is as transient as a 429 and now retried like one.
+    if not (message.get("content") or "").strip() and not message.get("tool_calls"):
+        reason = choices[0].get("native_finish_reason") or choices[0].get("finish_reason") or "?"
+        return f"the provider returned an empty message with no tool call (finish_reason: {reason})"
+    return ""
 
 
 def _detail(error: urllib.error.HTTPError) -> str:

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import hmac
 import json
+import traceback
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from mirag import __version__
 from mirag.api.router import Router
+from mirag.core.errors import MiragError, ModelUnreachableError, RateLimitedError
 from mirag.api.schemas import MAX_BODY_BYTES, ChatRequest, ValidationError
 from mirag.core.text import sha256_hex
 from mirag.projects.artifacts import VALID_ID
@@ -51,8 +53,16 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
         path, _, query = self.path.partition("?")
         return path, urllib.parse.parse_qs(query)
 
+    _answered = False
+    """Whether anything has already gone out on this connection.
+
+    The catch-all in `_dispatch` needs it: a handler that failed AFTER sending its headers —
+    a stream that died half way — must not have a second response written on top of the
+    first, which would leave the caller parsing two bodies glued together."""
+
     def _send(self, status: int, body: bytes, content_type: str, head_only: bool = False,
               extra: dict[str, str] | None = None) -> None:
+        self._answered = True
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
@@ -109,7 +119,22 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
         if head_only and route.name == "download":
             self._error(404, "not_found", "HEAD does not download", head_only=True)
             return
-        route.handler(self, query=query, head_only=head_only, **params)
+        try:
+            route.handler(self, query=query, head_only=head_only, **params)
+        except Exception as exc:  # noqa: BLE001 — the last line before the socket is dropped
+            # Anything a handler did not expect used to leave here uncaught, and `socketserver`
+            # answers that by CLOSING THE CONNECTION with nothing on it. Through the gateway
+            # that arrives as "Service 'pm' is unreachable" after a minute of waiting — a
+            # sentence about the wrong machine. Measured: a TLS failure reaching OpenRouter
+            # took down the whole request and said the agent was down.
+            #
+            # The detail is the exception's type and message, never its traceback: it is the
+            # difference between debugging in one minute and reading a stack the caller
+            # cannot see. Nothing here is user input echoed back.
+            self.log_error("unhandled %s in %s: %s", type(exc).__name__, route.name, exc)
+            traceback.print_exc()
+            if not getattr(self, "_answered", False):
+                self._error(500, "internal_error", f"{type(exc).__name__}: {exc}", head_only)
 
     def do_GET(self) -> None:
         self._dispatch("GET")
@@ -210,7 +235,12 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
             self._json(run(payload, locale), head_only=head_only)
         except ValueError as exc:
             self._error(400, "invalid_request", str(exc), head_only)
-        except RuntimeError as exc:
+        except (ModelUnreachableError, RateLimitedError) as exc:
+            # 503 and not 502: the provider is the one that is unavailable, and the caller may
+            # usefully try again. It used to be neither — these are not RuntimeErrors, so they
+            # escaped this handler entirely and the connection was dropped with no body.
+            self._error(503, "model_unavailable", str(exc), head_only)
+        except (RuntimeError, MiragError) as exc:
             # 502: the operation is well-formed and the model behind it did not deliver.
             self._error(502, "upstream_failed", str(exc), head_only)
 
@@ -249,6 +279,7 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
             self._error(400, exc.code, str(exc))
             return
 
+        self._answered = True  # from here on the catch-all must not write a second response
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")

@@ -8,7 +8,8 @@ request: a project goes to its own artifact, with its own id.
 
 from __future__ import annotations
 
-from mirag.core.errors import BudgetExceededError, OfflineModeError, RateLimitedError
+from mirag.core.errors import (BudgetExceededError, ModelUnreachableError, OfflineModeError,
+                               RateLimitedError)
 from mirag.core.timing import Stopwatch
 from mirag.llm.gateway import LLMGateway
 from mirag.pipeline.knowledge_stage import PreparedRequest
@@ -51,7 +52,7 @@ class ProjectDeliveryStage:
                       clock.ms, Source.EXECUTION))
             run.answer = t("pipeline.model.no_model_answer", error=str(exc))
             return
-        except (OfflineModeError, RateLimitedError) as exc:
+        except (OfflineModeError, RateLimitedError, ModelUnreachableError) as exc:
             note(Step("generation", StepStatus.ERROR, t("pipeline.model.offline"), clock.ms, Source.EXECUTION))
             run.answer = t("pipeline.model.no_model_answer", error=str(exc))
             return
