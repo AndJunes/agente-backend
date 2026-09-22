@@ -9,13 +9,14 @@ import socket
 import threading
 import traceback
 import urllib.parse
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from mirag import __version__
 from mirag.api.router import Router
-from mirag.core.errors import MiragError, ModelUnreachableError, RateLimitedError
 from mirag.api.schemas import MAX_BODY_BYTES, ChatRequest, ValidationError
+from mirag.core.errors import MiragError, ModelUnreachableError, RateLimitedError
 from mirag.core.text import sha256_hex
 from mirag.projects.artifacts import VALID_ID
 from mirag.projects.model import safe_name
@@ -124,7 +125,7 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
             return
         try:
             route.handler(self, query=query, head_only=head_only, **params)
-        except Exception as exc:  # noqa: BLE001 — the last line before the socket is dropped
+        except Exception as exc:
             # Anything a handler did not expect used to leave here uncaught, and `socketserver`
             # answers that by CLOSING THE CONNECTION with nothing on it. Through the gateway
             # that arrives as "Service 'pm' is unreachable" after a minute of waiting — a
@@ -298,24 +299,72 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
         They are not the same fact, and conflating them is why a closed tab kept generating —
         and kept being billed — for twenty minutes after nobody was left to read it."""
 
-        def emit(event: dict[str, Any]) -> None:
-            """One SSE event. flush() on each one or the browser sees nothing until the end."""
+        writing = threading.Lock()
+        """One writer at a time. The heartbeat below shares this `wfile` with `emit`, and two
+        threads interleaving mid-frame would produce an SSE event nobody can parse."""
+
+        def write(frame: str) -> None:
             nonlocal gone
             if gone:
                 return
             try:
-                payload = json.dumps(event, ensure_ascii=False, default=str)
-                self.wfile.write(f"data: {payload}\n\n".encode())
-                self.wfile.flush()
+                with writing:
+                    self.wfile.write(frame.encode())
+                    self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 gone = True
                 if self.container.settings.cancel_on_disconnect:
                     cancelled.set()
 
-        with _DisconnectWatch(self.connection, cancelled,
-                              self.container.settings.cancel_on_disconnect):
+        def emit(event: dict[str, Any]) -> None:
+            """One SSE event. flush() on each one or the browser sees nothing until the end."""
+            write(f"data: {json.dumps(event, ensure_ascii=False, default=str)}\n\n")
+
+        with (_DisconnectWatch(self.connection, cancelled,
+                               self.container.settings.cancel_on_disconnect),
+              _Heartbeat(write)):
             self.container.chat.handle(request, emit, self.headers.get("Accept-Language"),
                                        cancelled=cancelled)
+
+
+class _Heartbeat:
+    """Keeps the stream from going silent long enough for somebody in the middle to kill it.
+
+    This is not a nicety. One model call averages 234 seconds and the pipeline emits a step
+    per call, so the gaps in this stream are routinely minutes long. Undici — which is what
+    Node's `fetch` uses, and therefore what the front end's proxy uses — cuts a response body
+    after 300 seconds WITHOUT A BYTE. Measured: a generation died at exactly that,
+    `UND_ERR_BODY_TIMEOUT`, with the backend still working perfectly.
+
+    Every intermediary has a version of this limit: nginx has `proxy_read_timeout`, browsers
+    have their own, and none of them can tell "still thinking" from "dead". A stream that goes
+    quiet for five minutes is fragile by construction, and no timeout setting anywhere else
+    fixes it for the next hop.
+
+    A line beginning with `:` is an SSE comment. The spec says clients ignore it, and this
+    project's reader does so by construction: it keeps only the parts that start with
+    `data: `.
+    """
+
+    EVERY_S = 15.0
+    """Far under any limit worth worrying about, and 40 bytes a minute."""
+
+    def __init__(self, write: Callable[[str], None]) -> None:
+        self._write = write
+        self._done = threading.Event()
+        self._thread = threading.Thread(target=self._beat, name="sse-heartbeat", daemon=True)
+
+    def __enter__(self) -> _Heartbeat:
+        self._thread.start()
+        return self
+
+    def __exit__(self, *_exc: Any) -> None:
+        self._done.set()
+        self._thread.join(timeout=2.0)
+
+    def _beat(self) -> None:
+        while not self._done.wait(self.EVERY_S):
+            self._write(": keep-alive\n\n")
 
 
 class _DisconnectWatch:
