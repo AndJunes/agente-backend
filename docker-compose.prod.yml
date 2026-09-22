@@ -44,6 +44,10 @@ services:
       #
       # `scripts/probe_models.py` is how this name gets chosen again when it stops existing.
       MIRAG_MODEL: "${MIRAG_BACKEND_MODEL:-inclusionai/ling-3.0-flash-vl:free}"
+      # The model's ceiling, not half of it. Reasoning tokens come out of this budget: at
+      # 16,000 a batch came back three times running with `finish_reason: length` and an empty
+      # message — the whole allowance spent thinking, nothing written.
+      MIRAG_MAX_OUTPUT_TOKENS: "${MIRAG_MAX_OUTPUT_TOKENS:-32000}"
       MIRAG_BUDGET_USD: "0.50"
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is missing from .env}"
       # Even with no published port the token is worth it: it limits the damage if another

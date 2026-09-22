@@ -233,6 +233,11 @@
     "group_rejected": "{count} rejected",
     "group_early": "{count} files that an earlier group already delivered",
     "group_missing": "{count} planned files the model never delivered",
+    "budget_stopped": "the spending cap was reached; what was generated is kept — {reason}",
+    "provider_stopped": "the provider stopped answering; what was generated is kept — {reason}",
+    "unreachable_stopped": "the provider could not be reached; what was generated is kept — {reason}",
+    "model_stopped": "the model stopped answering; what was generated is kept — {reason}",
+    "stopped_earlier": "not asked for: the generation had already stopped — {reason}",
     "problem": {
       "no_tests": "the plan has no file in tests/: without tests there is nothing to verify",
       "no_readme": "the plan has no README: a project nobody can run is not a delivery",

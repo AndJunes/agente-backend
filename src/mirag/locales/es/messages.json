@@ -233,6 +233,11 @@
     "group_rejected": "{count} rechazados",
     "group_early": "{count} archivos que ya había entregado un grupo anterior",
     "group_missing": "{count} archivos del plano que el modelo nunca entregó",
+    "budget_stopped": "se alcanzó el tope de gasto; se conserva lo generado — {reason}",
+    "provider_stopped": "el proveedor dejó de responder; se conserva lo generado — {reason}",
+    "unreachable_stopped": "no se pudo llegar al proveedor; se conserva lo generado — {reason}",
+    "model_stopped": "el modelo dejó de responder; se conserva lo generado — {reason}",
+    "stopped_earlier": "no se pidió: la generación ya se había detenido — {reason}",
     "problem": {
       "no_tests": "el plano no incluye ningún archivo en tests/: sin tests no hay nada que verificar",
       "no_readme": "el plano no trae README: un proyecto que nadie puede ejecutar no es una entrega",

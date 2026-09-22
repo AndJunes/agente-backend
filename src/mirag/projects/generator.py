@@ -57,6 +57,13 @@ Two was enough when the only failure being handled was a dropped call. It is not
 a group of twenty files delivered in batches: four passes of six covers twenty-four, which
 is more than any group a blueprint has produced. `MAX_CALLS` is the real ceiling."""
 
+_STOP_REASON: dict[type[Exception], str] = {
+    BudgetExceededError: "generation.budget_stopped",
+    RateLimitedError: "generation.provider_stopped",
+    ModelUnreachableError: "generation.unreachable_stopped",
+}
+"""Which sentence each stop deserves. They are handled the same and they are not the same."""
+
 GROUP_BATCH = 6
 """Files asked for in one call.
 
@@ -434,9 +441,12 @@ class ProjectGenerator:
 
         project = Project(spec.get("name") or "project", spec)
         stopped = ""
-        for group in groups_of(plan):
+        pending = groups_of(plan)
+        for index, group in enumerate(pending):
             if stopped:
-                note(GenerationStep(f"generation:{group}", "skipped", t("pipeline.model.budget_partial")))
+                note(GenerationStep(f"generation:{group}", "skipped",
+                                    t("generation.stopped_earlier", reason=stopped[:90]),
+                                    {"cause": stopped}))
                 continue
             own = [f for f in plan if f.get("group") == group]
             if not own:
@@ -444,6 +454,14 @@ class ProjectGenerator:
             if used >= MAX_CALLS:
                 note(GenerationStep(f"generation:{group}", "skipped", t("generation.call_cap", cap=MAX_CALLS)))
                 continue
+            # One call is held back for each group still to come.
+            #
+            # Measured: `core` had 31 files, took four passes, and by then the cap was gone.
+            # `docs` — a single file, the README — was never asked for at all. A group of
+            # thirty-one starving a group of one is not a budget, it is a race, and the
+            # cheapest and most necessary file in the project lost it.
+            reserved = len(pending) - index - 1
+            ceiling = MAX_CALLS - reserved
             # Asked more than once, for the same reason the blueprint is: the group that
             # failed in the real run was `docs`, on a free provider that drops calls, and one
             # empty answer ended the only chance the project had of getting a README.
@@ -457,7 +475,10 @@ class ProjectGenerator:
             rejected: list[str] = []
             reasons: list[str] = []
             for _attempt in range(GROUP_ATTEMPTS):
-                if used >= MAX_CALLS:
+                # The group's own ceiling, not the run's: what is left after the reservation.
+                # A group is still allowed its FIRST call even when the reservation is spent,
+                # because a group that never gets asked cannot deliver anything at all.
+                if used >= (ceiling if placed or _attempt else MAX_CALLS):
                     break
                 missing = [f for f in own if project.get(f["path"]) is None]
                 if not missing:
@@ -478,9 +499,18 @@ class ProjectGenerator:
                     # Eleven files already exist. Letting this out of `generate` threw them
                     # away and answered with a stack trace; what the user gets instead is the
                     # project that WAS built, with a step saying which group never arrived.
+                    #
+                    # And saying WHY. These three are caught together because the handling is
+                    # the same — keep what exists, stop asking — but they are three different
+                    # events with three different fixes, and one message for all of them
+                    # reported "the spending cap was reached" for a run that never spent a
+                    # cent: the model had burned its output budget reasoning. That is the same
+                    # kind of misleading sentence this whole pass exists to remove.
                     stopped = str(exc)
                     note(GenerationStep(f"generation:{group}", "error",
-                                        t("pipeline.model.budget_partial"), {"cause": stopped}))
+                                        t(_STOP_REASON.get(type(exc), "generation.model_stopped"),
+                                          reason=stopped[:120]),
+                                        {"cause": stopped, "kind": type(exc).__name__}))
                     break
                 used += 1
                 data = first_tool_arguments(message, reasons, name="deliver_group") or {}
