@@ -250,13 +250,10 @@
     "problem": {
       "no_tests": "el plano no incluye ningún archivo en tests/: sin tests no hay nada que verificar",
       "no_readme": "el plano no trae README: un proyecto que nadie puede ejecutar no es una entrega",
-      "too_many_files": "el plano trae {count} archivos y el tope es {cap}: los que sobran no se escribirían nunca",
       "no_entrypoint": "el plano no marca ningún entrypoint",
       "bad_interpreter": "el comando de test empieza por '{first}' y aquí solo hay {available}"
     },
     "no_plan_retry": "el modelo no devolvió un plano utilizable; se lo pido otra vez",
-    "plan_too_big": "el plano traía {count} archivos y el tope es {cap}; pido uno más chico",
-    "plan_trimmed": "se descartaron {count} archivos por encima del tope de {cap} antes de generar",
     "entrypoint_assumed": "el plano no marcaba entrypoint: se toma '{path}' como tal",
     "plan_unusable": "el plano no tiene entrypoint ni se puede deducir uno: nada de lo que sigue podría ejecutarse"
   },

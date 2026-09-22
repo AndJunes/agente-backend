@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -171,6 +171,73 @@ def _as_findings(error: ExecutionResult) -> tuple[Finding, ...]:
                     detail=error.detail or "the file does not compile"),)
 
 
+FAILING_TEST = re.compile(r"^(?:FAIL|ERROR):\s+(\S+)\s+\(([^)]+)\)", re.MULTILINE)
+"""`FAIL: test_crear (tests.test_plantas.TestRepo.test_crear)` — unittest's own heading."""
+
+TRACEBACK_FRAME = re.compile(r'^\s+File "([^"]+)", line (\d+)', re.MULTILINE)
+"""A frame. The LAST one inside a block is where the assertion actually blew up."""
+
+def _why(block: str) -> str:
+    """The exception line that ends a traceback.
+
+    Not a regex on the exception's NAME: real ones are dotted —
+    `vivero.shared.errors.ConflictError`, `sqlite3.OperationalError` — and a pattern anchored
+    on a bare word plus "Error" matches neither, which silently fell through to quoting the
+    block's heading back at the model instead of the reason.
+
+    unittest's own shape is what identifies it: the frames are indented, the exception is the
+    last line that is not.
+    """
+    lines = [line for line in block.splitlines()
+             if line.strip() and not line.startswith((" ", "\t"))
+             and not line.startswith(("FAIL:", "ERROR:", "---", "Traceback"))]
+    return lines[-1].strip() if lines else ""
+
+
+def failures_as_findings(output: str, known: Collection[str]) -> tuple[Finding, ...]:
+    """Every failing test as a `Finding` the repairer can act on.
+
+    The tests loop was the one that passed `errors=[]`, and that single decision disabled
+    everything downstream: with no findings the diagnosis became the literal string
+    "(see the output)", and the choice of which files to send the model degenerated into
+    asking whether a path happened to appear as a SUBSTRING of a truncated log.
+
+    Measured on a real failure, that resolved to one file — a test file — for a project whose
+    bug was in `shared/database.py`. The model was asked to fix a cause while holding only the
+    symptom.
+
+    `known` is the project's own paths, used to keep only frames that belong to it: a
+    traceback is mostly `unittest/case.py` and other stdlib, which is never what to repair.
+    """
+    findings: list[Finding] = []
+    for block in _blocks(output):
+        head = FAILING_TEST.search(block)
+        if head is None:
+            continue
+        frames = [(path, int(line)) for path, line in TRACEBACK_FRAME.findall(block)]
+        mine = [(path, line) for path, line in frames
+                if any(path.endswith(candidate) for candidate in known)]
+        # The deepest frame in the project is where it broke; the shallowest is the test that
+        # noticed. Prefer the former, fall back to the latter.
+        where = mine[-1] if mine else (frames[-1] if frames else ("", 0))
+        findings.append(Finding(
+            kind="failing_test", severity=Severity.ERROR,
+            file=_relative(where[0], known), line=where[1],
+            detail=f"{head.group(1)} failed: {_why(block) or block.strip()[:160]}",
+            subject=head.group(1)))
+    return tuple(findings)
+
+
+def _blocks(output: str) -> list[str]:
+    """unittest separates each failure with a line of `=`."""
+    return [block for block in re.split(r"^=+$", output, flags=re.MULTILINE) if "File \"" in block]
+
+
+def _relative(path: str, known: Collection[str]) -> str:
+    """A traceback carries the absolute path inside the sandbox; the project knows relatives."""
+    return next((candidate for candidate in known if path.endswith(candidate)), path)
+
+
 ENTRYPOINT_NAMES = ("create_server", "crear_servidor", "create_app", "crear_app", "make_server")
 ENTRYPOINT = re.compile(r"^\s*(?:async\s+)?def\s+(" + "|".join(ENTRYPOINT_NAMES) + r")\s*\(", re.MULTILINE)
 """What the CRUD probe imports and calls.
@@ -283,6 +350,11 @@ class ProjectCertifier:
         self._syntax = syntax
         self._analyzer = analyzer
         self._evidence = evidence or EvidenceBuilder()
+
+    @property
+    def analyzer(self) -> DependencyAnalyzer:
+        """The import graph, for whoever needs to follow it — the repairer does."""
+        return self._analyzer
 
     def _python(self) -> str:
         return "python3"
@@ -474,7 +546,8 @@ class ProjectCertifier:
         if tests.status is ExecutionStatus.FAILED and repairer:
             for attempt in range(1, MAX_REPAIRS + 1):
                 clock.restart()
-                repaired, changed, cause = repairer(project, [], tests.text, attempt)
+                repaired, changed, cause = repairer(
+                    project, failures_as_findings(tests.text, project.paths()), tests.text, attempt)
                 repairs.append({"attempt": attempt, "files": list(changed), "cause": cause, "motive": "tests"})
                 note(Phase(f"repair:tests:{attempt}", _REPAIR_STATUS[bool(changed)],
                            t("cert.repair.tests", count=len(changed)), clock.ms))

@@ -32,20 +32,20 @@ from mirag.i18n.catalog import MessageCatalog
 from mirag.llm.gateway import LLMGateway
 from mirag.llm.messages import first_tool_arguments, function_tool
 from mirag.projects.certification import Repairer
-from mirag.projects.dependencies import Finding
+from mirag.projects.dependencies import DependencyAnalyzer, Finding
 from mirag.projects.model import FILE_KINDS, Project
 
-MAX_PLANNED = 16
-"""Files a blueprint may plan. The cap that makes "every planned file was delivered" a
-promise the generator can actually keep.
+SUGGESTED_FILES = 16
+"""What the contract ASKS FOR, and nothing more than that.
 
-Nothing told the model how many to plan, and it planned 36. At the measured ~234 seconds a
-call on a free model, thirty-six files in batches of six is around half an hour that never
-finishes — so the run ended with twelve files, no README, and a project whose imports pointed
-at the twenty-four that were never written.
+This was a hard cap, and a plan over it was trimmed — which silently dropped files the plan
+had asked for and could perfectly well break the code that imported them. Rejecting a
+blueprint for being one file too long, or quietly cutting it, solves the wrong problem: the
+real one was that a big plan did not fit in the call budget, and the answer to that is
+generating the batches in parallel, not throwing files away.
 
-Sixteen is not a guess at the right architecture; it is the number at which the delivery fits
-in the call budget. Fewer, bigger modules is also better code than thirty-six stubs."""
+The number stays as guidance because it is still true that fewer, larger modules deliver more
+reliably than thirty-six stubs — every file is another chance for one not to arrive."""
 
 MAX_CALLS = 16
 """The real ceiling on model calls inside :meth:`ProjectGenerator.generate`.
@@ -119,40 +119,78 @@ def _flattened(path: str, content: str) -> str:
             f"newlines inside a tool call, so this is not usable source")
 
 
-def trim_plan(plan: list[dict[str, Any]], cap: int = MAX_PLANNED) -> tuple[list[dict[str, Any]], list[str]]:
-    """The plan cut down to ``cap`` files, and the paths that were dropped.
+REPAIR_OUTPUT = 12_000
+"""Characters of execution output the repairer is shown.
 
-    Only reached when the model has already been asked twice and went over both times. The
-    alternative is worse in a specific way: an over-long plan cannot be delivered inside the
-    call budget, so it guarantees the INCOMPLETE verdict rather than risking it.
+It was 3,000, on top of the runner's own 4,000-character cap — and the two interacted badly.
+The markers go to stdout and the tracebacks to stderr, the runner concatenates them in that
+order, so 2,283 characters of `TEST:x:FAIL` lines filled the ENTIRE 2,000-character head of
+the truncation window. Of thirty-five failures the model saw roughly two explained. It knew
+which tests failed and, for almost all of them, not why."""
 
-    Trimming BEFORE generation is what makes it safe. `interface_contract` shows the model
-    only the files in the plan, so a dropped file is one the model is never told about and
-    therefore never imports. Trimming afterwards would leave exactly the dangling imports
-    this is trying to avoid.
+MAX_INVOLVED = 8
+"""Files sent in one repair prompt. Enough for a test, the chain it exercises, and the
+storage underneath; small enough that the bodies still leave room for an answer."""
 
-    What survives, in order: the entrypoint, anything under `tests/`, the README, then the
-    rest in the order the model planned it — because the model put the load-bearing modules
-    first and the ornamental ones last.
+_REPAIR_ADVICE = {
+    "failing_test": (
+        "The project's own tests are FAILING. Fix the CODE UNDER TEST, not the tests.\n"
+        "Weakening an assertion, deleting a case or wrapping it in try/except is not a repair "
+        "and will be rejected: the tests are the only evidence this project works.\n"
+        "The bug is usually NOT in the test file. Read the traceback and follow it into the "
+        "module that raised.\n"
+        "Return ONLY the files you change."
+    ),
+    "syntax_error": (
+        "A file does not compile. Fix the syntax where the error points, change nothing else, "
+        "and return ONLY the files you change."
+    ),
+    "broken_internal_import": (
+        "An import does not resolve. Either the module is missing what it is asked for, or the "
+        "import names the wrong thing. Fix whichever is actually wrong — do not delete the "
+        "import to silence it. Return ONLY the files you change."
+    ),
+    "failure": "Fix the CAUSE, not the symptom. Return ONLY the files you change.",
+}
+"""One instruction per motive.
+
+All three repair loops shared a single prompt that only talked about generating a project. A
+model handed test files and told "fix the cause" has one cheap move available — soften the
+assertion — and nothing was telling it not to."""
+
+
+def _involved(project: Project, errors: Sequence[Finding], output: str,
+              analyzer: DependencyAnalyzer | None) -> list[str]:
+    """Which files the repairer is shown.
+
+    Three sources, in order of how much they know:
+
+    1. The files the findings NAME. For a failing test that is now the deepest project frame
+       in the traceback — where it actually broke — not the test that noticed.
+    2. What those files REACH through the import graph. This is the part that was missing: a
+       failing test names a test file, and the bug lives in the code that test exercises. The
+       graph is the only thing that knows which code that is.
+    3. Paths that appear in the output, as a last resort.
+
+    The old fallback — the first four `.py` files in alphabetical order — is gone. For a
+    project with `tests/` and `vivero/`, "alphabetical" meant the four test files and not one
+    line of implementation: the model was asked for the cause while holding only the symptom.
     """
-    if len(plan) <= cap:
-        return plan, []
-
-    def rank(entry: Mapping[str, Any]) -> int:
-        path = str(entry.get("path") or "")
-        if entry.get("kind") == "entrypoint":
-            return 0
-        if path.startswith("tests/"):
-            return 1
-        if path.upper().startswith("README"):
-            return 2
-        return 3
-
-    ordered = sorted(range(len(plan)), key=lambda i: (rank(plan[i]), i))
-    keep = {ordered[i] for i in range(min(cap, len(plan)))}
-    kept = [entry for i, entry in enumerate(plan) if i in keep]
-    dropped = [str(entry.get("path") or "") for i, entry in enumerate(plan) if i not in keep]
-    return kept, dropped
+    named = [f.file for f in errors if f.file and project.get(f.file) is not None]
+    if named and analyzer is not None:
+        reached = analyzer.reached_from(project, named)
+        # Named first: they are where the traceback pointed, and the prompt is capped.
+        ordered = named + [path for path in reached if path not in named]
+        return ordered[:MAX_INVOLVED]
+    if named:
+        return sorted(set(named))[:MAX_INVOLVED]
+    mentioned = sorted(f.path for f in project.files() if output and f.path in output)
+    if mentioned:
+        return mentioned[:MAX_INVOLVED]
+    # Nothing to go on — which happens when the probe died before running anything. The
+    # entrypoint is the one file always worth looking at.
+    entry = [f.path for f in project.files("entrypoint")]
+    return (entry or [f.path for f in project.files() if f.path.endswith(".py")])[:MAX_INVOLVED]
 
 
 def _group_for(entry: Mapping[str, Any]) -> str:
@@ -171,16 +209,25 @@ MANDATORY PROJECT RULES (set by Mirag, not negotiable):
 - The entrypoint exposes `create_server(port=0, db=":memory:")` which RETURNS an already built
   ThreadingHTTPServer WITHOUT starting it. Whoever calls it starts it.
 - NOTHING runs when a module is imported. Start-up goes under `if __name__ == "__main__":`.
-- `sqlite3.connect(..., check_same_thread=False)` and a `threading.Lock` around writes.
+- THE DATABASE IS **ONE CONNECTION**, opened once inside `create_server` and shared by every
+  request. Pass it down; do not open one per request and do not close it between requests.
+  This is not a style preference, it is how `:memory:` works: every `sqlite3.connect(":memory:")`
+  opens a SEPARATE, EMPTY database, so a per-request connection sees none of the writes, and
+  the database is destroyed when its last connection closes. Open it with
+  `sqlite3.connect(db, check_same_thread=False)` and serialise the WRITES with a
+  `threading.Lock` — that is what `check_same_thread=False` requires of you, and it is the
+  companion of the shared connection, not a substitute for it.
 - Every package has its `__init__.py`.
 - Tests live in `tests/` and use `unittest`. MANDATORY: the plan must include at least one
   file in `tests/`. Without tests there is nothing to verify and the project is delivered FAILED.
+- EVERY TEST STARTS FROM A CLEAN DATABASE, built in `setUp` and not in `setUpClass`. Tests
+  must pass in any order and on their own: one that only passes after another has inserted a
+  row is a test that will fail here.
 - `test_command` must start with one of the interpreters that EXIST on this machine:
   {interpreters}.
-- AT MOST {max_files} FILES IN THE PLAN. Fewer and larger modules, never one file per class.
-  A plan longer than this is rejected and asked for again — the files past the cap would not
-  be written, and a project whose imports point at files that do not exist is worse than a
-  smaller one that runs.
+- PREFER FEWER, LARGER MODULES — around {max_files} files, never one file per class. Every
+  file is a separate thing that can arrive wrong or not arrive at all, and a project is
+  delivered only when ALL of its planned files exist.
 - Standard library only, unless the request explicitly asks for something else.
 - File paths are relative, without `..`, with a known extension.
 - Code, identifiers and comments are in English.
@@ -319,7 +366,7 @@ class ProjectGenerator:
 
     def contract(self, language_directive: str = "") -> str:
         return HTTP_CONTRACT.format(interpreters=self._interpreters.describe() or "python3",
-                                    max_files=MAX_PLANNED, language=language_directive)
+                                    max_files=SUGGESTED_FILES, language=language_directive)
 
     # ── the plan ─────────────────────────────────────────────────────────────
 
@@ -377,9 +424,7 @@ class ProjectGenerator:
             problems.append(catalog.t("generation.problem.no_readme"))
         if not any(f.get("kind") == "entrypoint" for f in plan):
             problems.append(catalog.t("generation.problem.no_entrypoint"))
-        if len(plan) > MAX_PLANNED:
-            problems.append(catalog.t("generation.problem.too_many_files",
-                                      count=len(plan), cap=MAX_PLANNED))
+
         command = (spec or {}).get("test_command") or ""
         first = command.split()[0] if command.split() else ""
         if first and self._interpreters.resolve(first) is None:
@@ -446,28 +491,13 @@ class ProjectGenerator:
         spec = None
         used = 0
         why: list[str] = []
-        insist = ""
         for attempt in range(SPECIFY_ATTEMPTS):
             why = []
-            asked = messages if not insist else [
-                messages[0], {"role": "user", "content": f"{request}\n\n{insist}"}]
-            message = gateway.chat(asked, tools=[SPECIFY_TOOL], require="specify_project")
+            message = gateway.chat(messages, tools=[SPECIFY_TOOL], require="specify_project")
             used += 1
             spec = first_tool_arguments(message, why, name="specify_project")
             files = spec.get("files") if isinstance(spec, dict) else None
             if spec and isinstance(files, list) and files:
-                # A plan past the cap is asked for again ONCE, told the number it produced and
-                # the number it may have. The files past the cap do not get written, and a
-                # project whose imports point at files that were never written is worse than a
-                # smaller project that runs.
-                if len(files) > MAX_PLANNED and attempt + 1 < SPECIFY_ATTEMPTS:
-                    insist = (f"YOUR PREVIOUS PLAN HAD {len(files)} FILES AND THE CAP IS "
-                              f"{MAX_PLANNED}. Plan it again with at most {MAX_PLANNED}: merge "
-                              f"the small modules, keep the entrypoint, the tests and the README.")
-                    note(GenerationStep("specification", "fallback",
-                                        t("generation.plan_too_big", count=len(files),
-                                          cap=MAX_PLANNED), {"planned": len(files)}))
-                    continue
                 break
             if spec is not None and not (files or []):
                 why.append("the blueprint arrived with no files in it")
@@ -492,10 +522,6 @@ class ProjectGenerator:
             # and the file disappearing between the blueprint and the project.
             if not str(entry.get("group") or "").strip():
                 entry["group"] = _group_for(entry)
-        plan, dropped = trim_plan(plan)
-        if dropped:
-            note(GenerationStep("plan", "fallback", t("generation.plan_trimmed", count=len(dropped),
-                                                      cap=MAX_PLANNED), {"dropped": dropped}))
         plan, added = self.complete_plan(plan, spec)
         if added:
             note(GenerationStep("plan", "fallback", t("generation.tests_added", count=len(added)), {"added": added}))
@@ -665,28 +691,31 @@ class ProjectGenerator:
 
     # ── repair ───────────────────────────────────────────────────────────────
 
-    def repairer(self, context: str, gateway: LLMGateway, language_directive: str = "") -> Repairer:
+    def repairer(self, context: str, gateway: LLMGateway, language_directive: str = "",
+                 analyzer: DependencyAnalyzer | None = None) -> Repairer:
         """A function ``(project, errors, output, attempt) -> (new, changed, cause)``.
 
         Only the files involved are sent: the whole project is not regenerated because
-        ``books/repository.py`` fails.
+        ``books/repository.py`` fails. Which files those ARE is the hard part — see
+        :func:`_involved`.
         """
         contract = self.contract(language_directive)
 
-        def repair(project: Project, errors: Sequence[Finding], output: str, attempt: int) -> tuple[Project, tuple[str, ...], str]:
-            involved = sorted({f.file for f in errors} | {f.path for f in project.files() if output and f.path in output})
-            if not involved:
-                involved = [f.path for f in project.files() if f.path.endswith(".py")][:4]
-            found = [(p, file) for p in involved if (file := project.get(p)) is not None]
-            bodies = "\n\n".join(f"--- {p}\n{file.text}" for p, file in found)
+        def repair(project: Project, errors: Sequence[Finding], output: str,
+                   attempt: int) -> tuple[Project, tuple[str, ...], str]:
+            involved = _involved(project, errors, output, analyzer)
+            found = [(path, file) for path in involved if (file := project.get(path)) is not None]
+            bodies = "\n\n".join(f"--- {path}\n{file.text}" for path, file in found)
             diagnosis = "\n".join(f"  {f.file}:{f.line} {f.detail}" for f in errors)
+            motive = errors[0].kind if errors else "failure"
+            why: list[str] = []
             try:
                 message = gateway.chat([
-                    {"role": "system", "content": f"{contract}\n\nFix the CAUSE, not the symptom. "
-                                                  "Return ONLY the files you change."},
+                    {"role": "system", "content": f"{contract}\n\n{_REPAIR_ADVICE.get(motive, _REPAIR_ADVICE['failure'])}"},
                     {"role": "user",
                      "content": f"Attempt {attempt}. This is wrong:\n{diagnosis or '(see the output)'}\n\n"
-                                f"Execution output:\n{(output or '')[:3000]}\n\nFiles involved:\n{bodies}"},
+                                f"Execution output:\n{(output or '')[:REPAIR_OUTPUT]}\n\n"
+                                f"Files involved:\n{bodies}"},
                 ], tools=[REPAIR_TOOL], require="repair_files")
             except RunStoppedError as exc:
                 # A repair is the one model call the project can do without. Letting the
@@ -694,20 +723,32 @@ class ProjectGenerator:
                 # already worth packaging; the certifier's own `if not changed: break` ends
                 # the repair loop, and the reason travels in the cause.
                 return project, (), str(exc)
-            data = first_tool_arguments(message, name="repair_files") or {}
+            data = first_tool_arguments(message, why, name="repair_files") or {}
             new_files = _files_of(data)
             if not new_files:
-                return project, (), str(data.get("cause", "the model returned no file"))
+                # `why` was collected and thrown away, so prose, truncated JSON and a wrong
+                # tool all reported the same sentence.
+                return project, (), str(data.get("cause") or (why[0] if why else "the model returned no file"))
             copy = project.copy()
-            changed = []
+            changed, refused = [], []
+            allowed = set(involved)
             for path, content in new_files.items():
                 if not isinstance(content, str):
+                    continue
+                # Only what it was SHOWN. `project.add` replaces, so a model returning a path
+                # it never read overwrites a file it wrote from imagination — and the counts
+                # in the trace said "8 files touched" for a model that had been handed one.
+                if path not in allowed:
+                    refused.append(path)
                     continue
                 try:
                     copy.add(path, content)
                     changed.append(path)
                 except ForbiddenPathError:
                     continue
-            return copy, tuple(changed), str(data.get("cause", ""))
+            cause = str(data.get("cause", ""))
+            if refused:
+                cause += f" (refused {len(refused)} paths it was not shown: {', '.join(refused[:3])})"
+            return copy, tuple(changed), cause
 
         return repair

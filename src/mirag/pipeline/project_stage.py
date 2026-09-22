@@ -76,7 +76,11 @@ class ProjectDeliveryStage:
             project, t, test_command=(generated.spec or {}).get("test_command"),
             on_phase=lambda phase: note(Step(phase.name, _PHASE_TO_STEP.get(phase.status, StepStatus.SKIPPED),
                                              phase.detail, phase.ms, Source.EXECUTION)),
-            repairer=self._generator.repairer(prepared.context, gateway, directive),
+            # The analyzer travels with the repairer so it can follow the import graph from a
+            # failing test into the code that test exercises. Without it the repairer was
+            # choosing files by substring-matching a truncated log.
+            repairer=self._generator.repairer(prepared.context, gateway, directive,
+                                              analyzer=self._certifier.analyzer),
             # What the plan asked for. Without it the certifier cannot tell a complete project
             # from one missing a third of its modules — `validate_structure` never reads the
             # plan, and the delivered subset compiling says nothing about the rest.

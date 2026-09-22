@@ -251,13 +251,10 @@
     "problem": {
       "no_tests": "the plan has no file in tests/: without tests there is nothing to verify",
       "no_readme": "the plan has no README: a project nobody can run is not a delivery",
-      "too_many_files": "the plan has {count} files and the cap is {cap}: the ones past it would never be written",
       "no_entrypoint": "the plan marks no entrypoint",
       "bad_interpreter": "the test command starts with '{first}' and here there is only {available}"
     },
     "no_plan_retry": "the model returned no usable blueprint; asking once more",
-    "plan_too_big": "the plan had {count} files and the cap is {cap}; asking for a smaller one",
-    "plan_trimmed": "{count} files beyond the cap of {cap} were dropped before generating",
     "entrypoint_assumed": "the plan marked no entrypoint: '{path}' is taken as one",
     "plan_unusable": "the plan has no entrypoint and none can be inferred: nothing downstream could be run"
   },

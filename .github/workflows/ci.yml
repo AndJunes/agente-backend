@@ -77,6 +77,14 @@ jobs:
           PYTHONPATH: src
         run: python scripts/check_deadlines.py
 
+      # A failing test has to reach the repairer as a file, a line and a reason — not as a
+      # truncated log and the literal string "(see the output)". The fixture is a real run
+      # that produced 41 red tests and two repairs that fixed nothing.
+      - name: A failing test tells the repairer where to look
+        env:
+          PYTHONPATH: src
+        run: python scripts/check_repair.py
+
       # The isolation invariant, in three lines. One process reads one corpus only because
       # exactly one module resolves the corpus directory; if that spreads, the guarantee that
       # the two agents cannot mix stops being checkable.
