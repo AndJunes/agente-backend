@@ -232,6 +232,7 @@
     "group_files": "{count} archivos",
     "group_rejected": "{count} rechazados",
     "group_early": "{count} archivos que ya había entregado un grupo anterior",
+    "group_missing": "{count} archivos del plano que el modelo nunca entregó",
     "problem": {
       "no_tests": "el plano no incluye ningún archivo en tests/: sin tests no hay nada que verificar",
       "no_readme": "el plano no trae README: un proyecto que nadie puede ejecutar no es una entrega",

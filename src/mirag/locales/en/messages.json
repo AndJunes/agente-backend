@@ -232,6 +232,7 @@
     "group_files": "{count} files",
     "group_rejected": "{count} rejected",
     "group_early": "{count} files that an earlier group already delivered",
+    "group_missing": "{count} planned files the model never delivered",
     "problem": {
       "no_tests": "the plan has no file in tests/: without tests there is nothing to verify",
       "no_readme": "the plan has no README: a project nobody can run is not a delivery",

@@ -34,14 +34,15 @@ from mirag.projects.certification import Repairer
 from mirag.projects.dependencies import Finding
 from mirag.projects.model import FILE_KINDS, Project
 
-MAX_CALLS = 10
+MAX_CALLS = 16
 """The real ceiling on model calls inside :meth:`ProjectGenerator.generate`.
 
 It was 7 and was never enforced: the blueprint's retry was not counted (`used = 1` whatever
 had happened) so the true ceiling was 8, and with four groups `used >= MAX_CALLS` could not
 fire at all. Now every call is counted, and the number is the worst case it has to allow:
-two blueprint attempts plus two attempts for each of four groups. Repairs are NOT in here —
-they belong to certification, which has its own attempt cap."""
+two blueprint attempts plus, for each of four groups, enough passes to deliver it in batches
+of `GROUP_BATCH`. Repairs are NOT in here — they belong to certification, which has its own
+attempt cap."""
 
 SPECIFY_ATTEMPTS = 2
 """How many times the blueprint is asked for before giving up.
@@ -49,12 +50,19 @@ SPECIFY_ATTEMPTS = 2
 Two, not one, and not more: a model that answers in prose twice is not going to answer in a
 tool call on the third try, and each attempt costs a call out of MAX_CALLS."""
 
-GROUP_ATTEMPTS = 2
-"""And the same for a group, for the same measured reason.
+GROUP_ATTEMPTS = 4
+"""Passes a group gets. Each one asks only for what is still missing.
 
-The blueprint's retry carries a comment saying free providers drop calls. That is just as
-true of a group, and it was never applied to one: the run that lost its README lost it to a
-single empty answer from the `docs` group."""
+Two was enough when the only failure being handled was a dropped call. It is not enough for
+a group of twenty files delivered in batches: four passes of six covers twenty-four, which
+is more than any group a blueprint has produced. `MAX_CALLS` is the real ceiling."""
+
+GROUP_BATCH = 6
+"""Files asked for in one call.
+
+Not a guess: asked for twenty at once the model wrote three and stopped, which is the correct
+behaviour for something with a finite output budget. Six times ~1,500 characters sits well
+inside 16,000 output tokens with the contract and the interface list in front of it."""
 GROUPS = ("core", "domain", "tests", "docs")
 """The order the four known groups are generated in — not the list of what exists.
 
@@ -436,22 +444,29 @@ class ProjectGenerator:
             if used >= MAX_CALLS:
                 note(GenerationStep(f"generation:{group}", "skipped", t("generation.call_cap", cap=MAX_CALLS)))
                 continue
-            wanted = "\n".join(f"  {f['path']} — {f.get('purpose', '')}" for f in own)
             # Asked more than once, for the same reason the blueprint is: the group that
             # failed in the real run was `docs`, on a free provider that drops calls, and one
-            # empty answer ended the only chance the project had of getting a README. The
-            # second attempt costs a call and is skipped when the cap is already in sight.
+            # empty answer ended the only chance the project had of getting a README.
+            #
+            # And asked again while files are STILL MISSING, which is the other half and the
+            # one that was wrong. The loop used to stop the moment anything at all arrived:
+            # measured, a `core` group of twenty files delivered THREE, reported "executed",
+            # and the project went on to fail with fifteen broken imports pointing at the
+            # seventeen that were never written. A partial delivery is not a delivery.
             placed: list[str] = []
             rejected: list[str] = []
             reasons: list[str] = []
-            for attempt in range(GROUP_ATTEMPTS):
+            for _attempt in range(GROUP_ATTEMPTS):
                 if used >= MAX_CALLS:
                     break
                 missing = [f for f in own if project.get(f["path"]) is None]
                 if not missing:
                     break
-                if attempt:
-                    wanted = "\n".join(f"  {f['path']} — {f.get('purpose', '')}" for f in missing)
+                # In batches, because a model has an output budget and twenty files do not fit
+                # in it. Asked for all twenty it wrote three good ones rather than twenty bad
+                # ones, which is the right call — so it is asked for a number that fits.
+                batch = missing[:GROUP_BATCH]
+                wanted = "\n".join(f"  {f['path']} — {f.get('purpose', '')}" for f in batch)
                 try:
                     message = gateway.chat([
                         {"role": "system",
@@ -494,8 +509,6 @@ class ProjectGenerator:
                         placed.append(path)
                     except ForbiddenPathError as exc:
                         rejected.append(f"{path}: {exc}")
-                if placed:
-                    break
             # A model asked for one group hands back a neighbouring file it needed to write
             # anyway — `core` delivered `models.py`, which the plan had put in `domain`. That
             # is a good answer, not a mistake, and it left this group with nothing to ask for.
@@ -503,6 +516,7 @@ class ProjectGenerator:
             # replaced: it says the generation failed when the project is complete.
             early = sorted({f["path"] for f in own if project.get(f["path"]) is not None}
                            - set(placed))
+            never = sorted(f["path"] for f in own if project.get(f["path"]) is None)
             if placed:
                 summary = t("generation.group_files", count=len(placed))
             elif early:
@@ -511,11 +525,18 @@ class ProjectGenerator:
                 summary = t("generation.group_files", count=0)
             if rejected:
                 summary += " · " + t("generation.group_rejected", count=len(rejected))
+            # Said out loud. A group that delivered three of twenty used to read exactly like
+            # one that delivered twenty of twenty, and the first sign of the difference was a
+            # wall of broken imports several phases later.
+            if never:
+                summary += " · " + t("generation.group_missing", count=len(never))
             if not placed and not early and reasons:
                 summary += f" · {reasons[0][:90]}"
-            note(GenerationStep(f"generation:{group}", "executed" if placed or early else "error", summary,
+            status = "error" if not (placed or early) else ("fallback" if never else "executed")
+            note(GenerationStep(f"generation:{group}", status, summary,
                                 {"files": placed, "delivered_earlier": early, "rejected": rejected,
-                                 "reasons": reasons, "requested": [f["path"] for f in own], "calls": used}))
+                                 "missing": never, "reasons": reasons,
+                                 "requested": [f["path"] for f in own], "calls": used}))
 
         result.project = project if project.files() else None
         result.calls = used
