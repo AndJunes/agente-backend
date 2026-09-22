@@ -30,7 +30,16 @@ from mirag.projects.dependencies import DependencyAnalyzer, Finding, Severity
 from mirag.projects.model import Project
 
 MAX_REPAIRS = 2
-"""A single file allows 1; a project has more surface."""
+"""Repair attempts PER MOTIVE: syntax, imports, failing tests.
+
+Per motive, and that is the fix. The three loops used to draw from one shared pool, and the
+last of them started at `range(len(repairs) + 1, ...)` — so a project that needed two syntax
+repairs arrived at its failing tests with zero attempts left, and the tests were never even
+asked about. The motive that got there first spent everything.
+
+They are separate problems fixed by separate calls. The ceiling is now 3 × 2 rather than 2,
+which is more model calls in the worst case and the right trade: a project one repair away
+from green used to be delivered red."""
 
 
 class ProjectStatus(StrEnum):
@@ -57,6 +66,15 @@ class PhaseStatus(StrEnum):
     FAILED = "failed"
     LIMITED = "limited"
     SKIPPED = "skipped"
+
+
+_REPAIR_STATUS = {True: PhaseStatus.OK, False: PhaseStatus.SKIPPED}
+"""A repair that changed nothing is the repairer DECLINING, not the project failing.
+
+It used to be noted FAILED, and `derive` turns any failed phase into PARTIAL — so a project
+whose tests went green after the first repair still came out PARTIAL because a second attempt
+found nothing left to change. The verdict of the thing being repaired is what says whether it
+worked; this row only says whether a call was spent."""
 
 
 _FROM_EXECUTION = {ExecutionStatus.PASSED: PhaseStatus.OK, ExecutionStatus.FAILED: PhaseStatus.FAILED}
@@ -111,7 +129,17 @@ def validate_structure(project: Project, catalog: MessageCatalog) -> list[str]:
     files = project.files()
     if not files:
         problems.append(catalog.t("cert.problem.no_files"))
-    if not any(f.path.startswith("tests/") or "test" in f.path.split("/")[-1] for f in files):
+    # `tests/` and nothing else, because that is where the harness looks.
+    #
+    # This used to accept a root-level `test_api.py` as well, while the tests probe runs
+    # `unittest.defaultTestLoader.discover("tests", ...)` flat. When a project took the branch
+    # this allowed, the probe raised `ImportError: Start directory is not importable`, exited
+    # non-zero with NO markers — and `derive` reads `if not markers` BEFORE it looks for
+    # broken phases, so the verdict came out EXECUTED ("it ran and printed nothing") instead
+    # of PARTIAL. A project whose tests never ran was reported as one whose tests were silent.
+    #
+    # Two places disagreeing about where tests live is the bug. One place wins.
+    if not any(f.path.startswith("tests/") and f.path.endswith(".py") for f in files):
         problems.append(catalog.t("cert.problem.no_tests"))
     if not any(f.path.endswith((".py", ".js")) for f in files):
         problems.append(catalog.t("cert.problem.no_code"))
@@ -334,7 +362,7 @@ class ProjectCertifier:
                 repaired, changed, cause = repairer(project, _as_findings(syntax_error), "", attempt)
                 repairs.append({"attempt": attempt, "files": list(changed), "cause": cause,
                                 "motive": "syntax"})
-                note(Phase(f"repair:{attempt}", PhaseStatus.OK if changed else PhaseStatus.FAILED,
+                note(Phase(f"repair:syntax:{attempt}", _REPAIR_STATUS[bool(changed)],
                            t("cert.repair.syntax", count=len(changed)), clock.ms))
                 if not changed:
                     break
@@ -365,7 +393,7 @@ class ProjectCertifier:
                 clock.restart()
                 repaired, changed, cause = repairer(project, errors, "", attempt)
                 repairs.append({"attempt": attempt, "files": list(changed), "cause": cause, "motive": "imports"})
-                note(Phase(f"repair:{attempt}", PhaseStatus.OK if changed else PhaseStatus.FAILED,
+                note(Phase(f"repair:imports:{attempt}", _REPAIR_STATUS[bool(changed)],
                            t("cert.repair.imports", count=len(changed)), clock.ms))
                 if not changed:
                     break
@@ -431,11 +459,11 @@ class ProjectCertifier:
                        clock.ms, documented.text))
 
         if tests.status is ExecutionStatus.FAILED and repairer:
-            for attempt in range(len(repairs) + 1, MAX_REPAIRS + 1):
+            for attempt in range(1, MAX_REPAIRS + 1):
                 clock.restart()
                 repaired, changed, cause = repairer(project, [], tests.text, attempt)
                 repairs.append({"attempt": attempt, "files": list(changed), "cause": cause, "motive": "tests"})
-                note(Phase(f"repair:{attempt}", PhaseStatus.OK if changed else PhaseStatus.FAILED,
+                note(Phase(f"repair:tests:{attempt}", _REPAIR_STATUS[bool(changed)],
                            t("cert.repair.tests", count=len(changed)), clock.ms))
                 if not changed:
                     break

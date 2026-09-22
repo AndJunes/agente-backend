@@ -169,7 +169,7 @@
     },
     "problem": {
       "no_files": "the project has no files",
-      "no_tests": "there is no test file",
+      "no_tests": "there is no .py file under tests/, which is where the harness looks",
       "no_code": "there is no code file",
       "missing_init": "{package}/ has no __init__.py"
     },

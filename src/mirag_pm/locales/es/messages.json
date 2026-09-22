@@ -169,7 +169,7 @@
     },
     "problem": {
       "no_files": "el proyecto no tiene archivos",
-      "no_tests": "no hay ningún archivo de tests",
+      "no_tests": "no hay ningún .py bajo tests/, que es donde mira el arnés",
       "no_code": "no hay ningún archivo de código",
       "missing_init": "{package}/ no tiene __init__.py"
     },
