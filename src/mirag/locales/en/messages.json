@@ -169,24 +169,34 @@
     },
     "problem": {
       "no_files": "the project has no files",
-      "no_tests": "there is no test file",
+      "no_tests": "there is no .py file under tests/, which is where the harness looks",
       "no_code": "there is no code file",
       "missing_init": "{package}/ has no __init__.py"
     },
+    "plan": {
+      "ok": "the {count} planned files are all there",
+      "missing": "{count} planned files are missing: {detail}",
+      "extra": "{count} files beyond the plan, which is allowed"
+    },
     "syntax": {
-      "ok": "every file compiles"
+      "ok": "every file compiles",
+      "repaired": "it compiles after repair {attempt}"
     },
     "imports": {
       "broken": "{count} broken imports",
       "limited": "{count} dependencies not installed here",
-      "ok": "the import graph resolves entirely"
+      "ok": "the import graph resolves entirely",
+      "repaired": "repaired on attempt {attempt}: every import resolves"
     },
     "repair": {
       "imports": "{count} files touched because of broken imports",
+      "syntax": "{count} files touched because they do not compile",
       "tests": "{count} files touched because of failing tests"
     },
     "execution": {
       "limited": "it does not run here: {missing} is missing",
+      "deadline": "not run: the time this request was given ran out",
+      "deadline": "not run: the time this request was given ran out",
       "disabled": "not run: execution is switched off (MIRAG_EXECUTION=off). The tests are delivered for the QA agent"
     },
     "documented": {
@@ -194,7 +204,7 @@
       "ok": "`{command}` runs without errors"
     },
     "crud": {
-      "skipped": "the project does not expose create_server(): there is no API to exercise"
+      "skipped": "the project does not expose a server factory (create_server): there is no API to exercise"
     },
     "crud_risk": "the {operation} operation does not really work",
     "crud_property": "{operation} answers over HTTP",
@@ -219,6 +229,7 @@
     "silent_phase": "the '{phase}' phase ran and produced not one marker: there is no way to know what it tested",
     "phase_failed": "the '{phase}' phase failed",
     "verified": "the {count} markers pass",
+    "incomplete": "{count} files the plan asked for were never written: {detail}",
     "verified_crud_suffix": ", including the full CRUD over HTTP"
   },
   "generation": {
@@ -228,11 +239,24 @@
     "call_cap": "cap of {cap} calls reached: this group was not generated",
     "group_files": "{count} files",
     "group_rejected": "{count} rejected",
+    "group_early": "{count} files that an earlier group already delivered",
+    "group_missing": "{count} planned files the model never delivered",
+    "budget_stopped": "the spending cap was reached; what was generated is kept — {reason}",
+    "provider_stopped": "the provider stopped answering; what was generated is kept — {reason}",
+    "deadline_stopped": "the time this request was given ran out; what was generated is kept — {reason}",
+    "abandoned_stopped": "nobody is waiting for this any more; it was stopped — {reason}",
+    "unreachable_stopped": "the provider could not be reached; what was generated is kept — {reason}",
+    "model_stopped": "the model stopped answering; what was generated is kept — {reason}",
+    "stopped_earlier": "not asked for: the generation had already stopped — {reason}",
     "problem": {
       "no_tests": "the plan has no file in tests/: without tests there is nothing to verify",
+      "no_readme": "the plan has no README: a project nobody can run is not a delivery",
       "no_entrypoint": "the plan marks no entrypoint",
       "bad_interpreter": "the test command starts with '{first}' and here there is only {available}"
-    }
+    },
+    "no_plan_retry": "the model returned no usable blueprint; asking once more",
+    "entrypoint_assumed": "the plan marked no entrypoint: '{path}' is taken as one",
+    "plan_unusable": "the plan has no entrypoint and none can be inferred: nothing downstream could be run"
   },
   "phase": {
     "structure": "Structure",
@@ -280,7 +304,10 @@
       "offline": "offline lock: nobody was called",
       "no_model_answer": "[no model] {error}",
       "asked_code": "asked to deliver code",
-      "answered_text": "answered with text"
+      "answered_text": "answered with text",
+      "rate_limited": "the provider refused the call: {error}",
+      "budget": "the spending cap for this request was reached: {error}",
+      "budget_partial": "the spending cap was reached; what was already generated is kept"
     },
     "delivery": {
       "summary": "{count} files · {command}",

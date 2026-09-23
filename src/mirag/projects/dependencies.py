@@ -293,6 +293,41 @@ class DependencyAnalyzer:
                 unique.append(finding)
         return imports, tuple(unique)
 
+    def reached_from(self, project: Project, seeds: Iterable[str], depth: int = 3) -> list[str]:
+        """The files ``seeds`` can reach through internal imports, seeds included.
+
+        This is what the repairer needed and did not have. A failing test names the TEST file;
+        the bug is almost always in the code that test exercises, and the import graph is the
+        only thing that knows which code that is. Measured on a real failure: a test in
+        `tests/test_plantas_crud.py` reaches `plantas/service.py` → `plantas/repository.py` →
+        `shared/database.py`, and the last of those was the one file that had to change.
+
+        Without it, file selection was a substring search over a truncated log and resolved to
+        the test file alone — the model was handed the symptom and asked for the cause.
+
+        ``depth`` is bounded because a project with a shared `errors` module reaches most of
+        itself in a few hops, and a prompt holding every file is the same as a prompt holding
+        none. Three is enough for entrypoint → service → repository → storage.
+        """
+        edges: dict[str, set[str]] = {}
+        mapping = self.module_map(project)
+        for record in self.imports(project):
+            if record.kind != "internal":
+                continue
+            target = mapping.get(record.module)
+            if target and target != record.file:
+                edges.setdefault(record.file, set()).add(target)
+
+        seen = {seed for seed in seeds if project.get(seed) is not None}
+        frontier = set(seen)
+        for _ in range(depth):
+            nxt = {target for path in frontier for target in edges.get(path, ())} - seen
+            if not nxt:
+                break
+            seen |= nxt
+            frontier = nxt
+        return sorted(seen)
+
     @staticmethod
     def of_severity(findings: Sequence[Finding], severity: Severity) -> list[Finding]:
         return [f for f in findings if f.severity is severity]

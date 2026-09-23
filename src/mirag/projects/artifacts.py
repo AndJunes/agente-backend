@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mirag.projects.certification import Certificate
+from mirag.projects.certification import Certificate, ProjectStatus
 from mirag.projects.model import Project
 from mirag.projects.packaging import MANIFEST_NAME, SECRETS, Manifest, Package
 
@@ -40,6 +40,14 @@ TTL_S = 3600
 MAX_ALIVE = 20
 MEMORY_LIMIT = 64 * 1024 * 1024
 ORPHAN_AGE_S = 24 * 3600
+
+
+REJECTED = frozenset({ProjectStatus.FAILED, ProjectStatus.INCOMPLETE})
+"""Verdicts that take the download away.
+
+Not a judgement about quality — PARTIAL and EXECUTED are still downloadable, because a
+project that runs and half-passes is something a person can work with. These two are
+different: FAILED does not run, and INCOMPLETE is missing files the plan asked for."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +64,17 @@ class Artifact:
 
     @property
     def downloadable(self) -> bool:
+        """The ZIP is built and the verdict does not reject the project.
+
+        It used to ask only the first half, so a FAILED project — and an INCOMPLETE one —
+        came with a download button as long as the ZIP itself was well formed. The ZIP being
+        well formed says nothing about the project inside it.
+
+        The artifact is still registered and the tree is still shown: what disappears is the
+        button, and the answer says why.
+        """
+        if self.certificate is not None and self.certificate.status in REJECTED:
+            return False
         return self.package is not None and self.package.ok
 
     @property

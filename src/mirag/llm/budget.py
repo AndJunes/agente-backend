@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 
 from mirag.core.errors import BudgetExceededError
@@ -27,6 +28,12 @@ class Budget:
 
     One instance per request: with a threaded server, two requests sharing a counter reset
     each other's totals and the cap stopped meaning anything.
+
+    And thread safe WITHIN a request, which it did not need to be until the generator started
+    asking for several batches at once. `self.calls += 1` is a load, an add and a store: two
+    threads recording at the same moment lose one of the two increments, and a spending
+    counter that undercounts is worse than none — it fails open, quietly, in the direction of
+    spending more.
     """
 
     def __init__(self, limit_usd: float = 0.0) -> None:
@@ -35,6 +42,7 @@ class Budget:
         self.input_tokens = 0
         self.output_tokens = 0
         self.calls = 0
+        self._lock = threading.Lock()
 
     @property
     def tokens(self) -> int:
@@ -45,10 +53,11 @@ class Budget:
         return 0 < self.limit_usd < 1e6
 
     def record(self, prompt_tokens: int = 0, completion_tokens: int = 0, cost_usd: float = 0.0) -> None:
-        self.calls += 1
-        self.input_tokens += prompt_tokens
-        self.output_tokens += completion_tokens
-        self.cost_usd += cost_usd
+        with self._lock:
+            self.calls += 1
+            self.input_tokens += prompt_tokens
+            self.output_tokens += completion_tokens
+            self.cost_usd += cost_usd
 
     def check(self) -> None:
         """Raise :class:`BudgetExceededError` if the cap was reached. 0 = no cap."""
