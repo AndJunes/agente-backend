@@ -60,6 +60,11 @@ class DemoContractRunner:
         artifact = run.artifact
         execution = run.execution
         observed = {
+            # Not the same question as `has_project`, and that is the point: this one says
+            # the pipeline took the project branch at all. A demo that loads the multi-file
+            # script while the branch is single-file fails HERE, naming the contradiction,
+            # instead of surfacing three stages later as an empty delivery.
+            "took_project_branch": bool(run.plan and run.plan.needs_project),
             "has_project": run.project is not None,
             "files": run.project.totals["files"] if run.project else 0,
             "project_status": certificate.status.value if certificate else None,

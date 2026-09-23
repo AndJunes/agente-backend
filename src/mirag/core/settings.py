@@ -19,6 +19,12 @@ DEFAULT_MODEL = "anthropic/claude-haiku-4.5"
 DEFAULT_LLM_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_LOCALE = "en"
 
+# The three clocks, declared once so the dataclass default and the `from_env` default cannot
+# drift apart. They already had: `budget_usd` writes 0.50 in both places.
+DEFAULT_LLM_TIMEOUT_S = 60.0
+DEFAULT_LLM_CALL_TIMEOUT_S = 600.0
+DEFAULT_RUN_TIMEOUT_S = 2_100.0
+
 _LEGACY_NAMES = {"MIRAG_MODELO": "MIRAG_MODEL", "LIMITE_USD": "MIRAG_BUDGET_USD",
                  "MIRAG_EJECUCION": "MIRAG_EXECUTION"}
 
@@ -79,7 +85,30 @@ class Settings:
     """Spending cap per request. 0 disables the cap (accounting only)."""
 
     max_output_tokens: int = 12_000
-    llm_timeout_s: float = 60.0
+
+    llm_timeout_s: float = DEFAULT_LLM_TIMEOUT_S
+    """Seconds allowed for ONE SOCKET OPERATION, and the name has been read as more than that.
+
+    It bounds a single `recv`, and every byte that arrives rearms it — so a provider sending
+    one byte a minute never trips it. It is the cheap first line against a peer that says
+    nothing at all; `llm_call_timeout_s` is the bound."""
+
+    llm_call_timeout_s: float = DEFAULT_LLM_CALL_TIMEOUT_S
+    """Total wall clock for one model call, its retries and its backoff sleeps included.
+
+    Measured: one call on a free model averages 234 seconds, so this is about 2.5x."""
+
+    run_timeout_s: float = DEFAULT_RUN_TIMEOUT_S
+    """Total wall clock for one request: generation, certification and everything between.
+
+    35 minutes against a measured 15-25 minute worst case. `0` disables it, which is what a
+    CLI run or a benchmark wants — neither has anybody waiting on the other end."""
+
+    cancel_on_disconnect: bool = True
+    """Whether closing the tab stops the work, or only stops the writing.
+
+    It was only ever the second. A closed tab left the generation running and being billed
+    to the end, because the flag that noticed only guarded the SSE writes."""
 
     default_locale: str = DEFAULT_LOCALE
     host: str = "127.0.0.1"
@@ -176,6 +205,12 @@ class Settings:
             # chat/completions dialect: switching is this URL plus the model, nothing else.
             openrouter_url=(env.get("MIRAG_LLM_URL") or "").strip() or DEFAULT_LLM_URL,
             budget_usd=_float(env, "MIRAG_BUDGET_USD", 0.50),
+            # `llm_timeout_s` was declared and never read from the environment: `from_env`
+            # simply did not list it, so it was pinned at its default in every deployment.
+            llm_timeout_s=_float(env, "MIRAG_LLM_TIMEOUT_S", DEFAULT_LLM_TIMEOUT_S),
+            llm_call_timeout_s=_float(env, "MIRAG_LLM_CALL_TIMEOUT_S", DEFAULT_LLM_CALL_TIMEOUT_S),
+            run_timeout_s=_float(env, "MIRAG_RUN_TIMEOUT_S", DEFAULT_RUN_TIMEOUT_S),
+            cancel_on_disconnect=_flag(env, "MIRAG_CANCEL_ON_DISCONNECT", True),
             max_output_tokens=_int(env, "MIRAG_MAX_OUTPUT_TOKENS", 12_000),
             default_locale=(env.get("MIRAG_LOCALE") or DEFAULT_LOCALE).strip().lower(),
             host=(env.get("MIRAG_HOST") or "").strip() or "127.0.0.1",

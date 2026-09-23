@@ -58,12 +58,48 @@ FORBIDDEN = (
     re.compile(r"(^|/)(id_rsa|\.npmrc|\.netrc|\.pypirc)$"),
     re.compile(r"(^|/)_probe_\w+\.py$"),  # Mirag's harness does not belong to the user
 )
+# Shapes that ARE a secret wherever they appear: nothing legitimate looks like these.
 SECRETS = re.compile(
-    rb"OPENROUTER_API_KEY|sk-or-v1-|sk-ant-|AKIA[0-9A-Z]{16}|BEGIN [A-Z ]*PRIVATE KEY"
+    rb"sk-or-v1-[A-Za-z0-9]{16,}|sk-ant-[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16}"
+    rb"|BEGIN [A-Z ]*PRIVATE KEY"
     # A Stellar seed: 'S' + 55 base32. It is the signing key and the only way to catch it is
     # its shape. A false positive costs an alarm; a false negative publishes a private key.
-    rb"|STELLAR_SECRET_KEY|\bS[A-Z2-7]{55}\b"
+    rb"|\bS[A-Z2-7]{55}\b"
 )
+
+# Names that are only a finding when something real is ASSIGNED to them.
+#
+# `OPENROUTER_API_KEY` used to be in SECRETS as a bare literal, which matched the NAME and not
+# a value. The model carries Mirag's own corpus as context, so documenting that variable in a
+# README or an `.env.example` is entirely plausible — and it failed the integrity check,
+# which removes the download button. A project is punished for documenting its configuration.
+NAMED_SECRET = re.compile(
+    rb"(?i)\b(OPENROUTER_API_KEY|STELLAR_SECRET_KEY|ANTHROPIC_API_KEY|OPENAI_API_KEY"
+    rb"|AWS_SECRET_ACCESS_KEY|SECRET_KEY|API_KEY|API_TOKEN|PASSWORD)\b\s*[:=]\s*"
+    rb"[\"']?([^\s\"'#,;]+)"
+)
+PLACEHOLDER = re.compile(
+    rb"(?i)\A(?:x+$|\.+$|-+$|_+$|<|your|my-|the-|put-|insert|replace|change|placeholder"
+    rb"|todo|tbd|none|null|empty|example|dummy|fake|test|secret|password|hunter2|abc123|123)"
+)
+NOT_A_VALUE = re.compile(rb"(?i)[(){}\[\]$<>]|\bos\.|getenv|environ|process\.|config\.|settings\.|self\.")
+"""`SECRET_KEY = os.environ.get("SECRET_KEY")` is how a project is SUPPOSED to read a secret.
+Reading the right-hand side as if it were the secret would fail the integrity check on the
+one line that proves the project does not hardcode it."""
+
+
+def carries_secret(raw: bytes) -> str:
+    """The secret found in ``raw``, or ``""``.
+
+    Two passes on purpose: a shape is a secret anywhere, a name is one only when what follows
+    it is not a placeholder. `KEY=your-key-here` documents; `KEY=sk-or-v1-8f2...` leaks.
+    """
+    if found := SECRETS.search(raw):
+        return found.group(0).decode("utf-8", "replace")[:24]
+    for name, value in NAMED_SECRET.findall(raw):
+        if len(value) >= 12 and not PLACEHOLDER.match(value) and not NOT_A_VALUE.search(value):
+            return name.decode("utf-8", "replace")
+    return ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,8 +288,8 @@ class ZipInspector:
                     mismatched.append((path, "different hash"))
                 elif len(raw) != fingerprint.size:
                     mismatched.append((path, "different size"))
-                if SECRETS.search(raw):
-                    with_secret.append(path)
+                if found := carries_secret(raw):
+                    with_secret.append(f"{path} ({found})")
             embedded = Path(tmp) / root / MANIFEST_NAME
             try:
                 same_manifest = embedded.is_file() and embedded.read_bytes() == manifest.to_bytes()

@@ -8,7 +8,8 @@ request: a project goes to its own artifact, with its own id.
 
 from __future__ import annotations
 
-from mirag.core.errors import OfflineModeError
+from mirag.core.errors import (BudgetExceededError, ModelUnreachableError, OfflineModeError,
+                               RateLimitedError, RunStoppedError)
 from mirag.core.timing import Stopwatch
 from mirag.llm.gateway import LLMGateway
 from mirag.pipeline.knowledge_stage import PreparedRequest
@@ -44,7 +45,15 @@ class ProjectDeliveryStage:
         try:
             generated = self._generator.generate(run.question, prepared.context, gateway, t, directive,
                                                  on_step=generation_step)
-        except OfflineModeError as exc:
+        except BudgetExceededError as exc:
+            # It was not caught at all: the cap is the only thing that really stops a runaway
+            # generation, and reaching it answered with a 500 instead of with the reason.
+            note(Step("generation", StepStatus.ERROR, t("pipeline.model.budget", error=str(exc)),
+                      clock.ms, Source.EXECUTION))
+            run.answer = t("pipeline.model.no_model_answer", error=str(exc))
+            return
+        except (OfflineModeError, RateLimitedError, ModelUnreachableError,
+                RunStoppedError) as exc:
             note(Step("generation", StepStatus.ERROR, t("pipeline.model.offline"), clock.ms, Source.EXECUTION))
             run.answer = t("pipeline.model.no_model_answer", error=str(exc))
             return
@@ -67,7 +76,16 @@ class ProjectDeliveryStage:
             project, t, test_command=(generated.spec or {}).get("test_command"),
             on_phase=lambda phase: note(Step(phase.name, _PHASE_TO_STEP.get(phase.status, StepStatus.SKIPPED),
                                              phase.detail, phase.ms, Source.EXECUTION)),
-            repairer=self._generator.repairer(prepared.context, gateway, directive),
+            # The analyzer travels with the repairer so it can follow the import graph from a
+            # failing test into the code that test exercises. Without it the repairer was
+            # choosing files by substring-matching a truncated log.
+            repairer=self._generator.repairer(prepared.context, gateway, directive,
+                                              analyzer=self._certifier.analyzer),
+            # What the plan asked for. Without it the certifier cannot tell a complete project
+            # from one missing a third of its modules — `validate_structure` never reads the
+            # plan, and the delivered subset compiling says nothing about the rest.
+            expected=generated.expected,
+            deadline=gateway.deadline,
         )
         # Package the project that was REALLY verified (a repair replaces the sealed one).
         verified = (certificate.project or project).seal()

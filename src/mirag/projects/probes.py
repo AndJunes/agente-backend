@@ -39,6 +39,66 @@ PROBE_TIMEOUT_S = 20
 OPERATIONS = ("create", "list", "get", "update", "persists", "delete", "deleted")
 PROBE_PREFIX = "_probe_"
 DEFAULT_RESOURCE = "/books"
+DEFAULT_SAMPLE = {"title": "Hopscotch", "author": "Cortazar"}
+DEFAULT_CHANGE = {"title": "Hopscotch (2nd ed)", "author": "Cortazar"}
+"""Only for a project that really is about books — see :func:`sample_for`."""
+
+NUMBER_HINTS = frozenset({"count", "cantidad", "total", "price", "precio", "amount", "monto",
+                          "age", "edad", "year", "ano", "qty", "stock", "number", "numero"})
+DATE_HINTS = frozenset({"date", "fecha", "time", "hora", "start", "end", "inicio", "fin",
+                        "at", "on", "from", "until", "desde", "hasta"})
+BOOLEAN_PREFIXES = ("is_", "has_", "can_", "es_", "tiene_")
+BOOLEAN_NAMES = frozenset({"active", "activo", "enabled", "habilitado", "done", "completed"})
+
+
+def _tokens(name: str) -> list[str]:
+    """``start_at`` -> ``['start', 'at']``.
+
+    Split rather than searched: matching ``"at"`` as a substring made `patient_name` and
+    `status` both look like dates, because the letters are in there. A field name is a word
+    list, so it is read as one."""
+    return [t for t in re.split(r"[_\-\s]+|(?<=[a-z])(?=[A-Z])", name) if t]
+
+
+def sample_for(entity: object, fields: object) -> tuple[dict[str, Any], dict[str, Any]]:
+    """A payload the project under test might plausibly accept, built from its own blueprint.
+
+    The blueprint has always collected ``entity`` and ``fields`` and nothing has ever read
+    them. So every project got a book POSTed at it: a booking API received
+    ``{"title": "Hopscotch", "author": "Cortazar"}``, its validator answered 400, and all
+    seven CRUD markers came out red **by construction** — on a project that was fine.
+
+    The values are guessed from the field names, which is a guess and is allowed to be wrong:
+    a wrong payload makes the probe report a failure the project can be fixed for, whereas the
+    old behaviour reported a failure nothing could fix.
+    """
+    names = [str(f).strip() for f in fields or () if str(f).strip()]
+    names = [n for n in names if n.lower() not in ("id", "pk", "uuid")]  # the server assigns these
+    if not names:
+        return dict(DEFAULT_SAMPLE), dict(DEFAULT_CHANGE)
+
+    label = str(entity or "item").strip() or "item"
+    sample: dict[str, Any] = {}
+    for name in names[:6]:  # enough to be accepted; not so many that one bad guess sinks it
+        low = name.lower()
+        # Tokenised from the ORIGINAL spelling: lowercasing first destroys the camelCase
+        # boundary, and `dueDate` becomes one word that matches nothing.
+        words = {t.lower() for t in _tokens(name)}
+        if low.startswith(BOOLEAN_PREFIXES) or low in BOOLEAN_NAMES:
+            sample[name] = True
+        elif words & DATE_HINTS:
+            sample[name] = "2026-01-15T10:00:00"
+        elif words & NUMBER_HINTS:
+            sample[name] = 1
+        else:
+            # Text is the default on purpose: a string is the value most validators accept,
+            # and a wrong guess here costs one field, not the whole request.
+            sample[name] = f"{label} de prueba"
+    # The changed field must be one the update can actually alter, so never the first if the
+    # first looks like a key, and always a string so the comparison after PUT is meaningful.
+    changeable = next((n for n in sample if isinstance(sample[n], str)), next(iter(sample)))
+    change = {**sample, changeable: f"{sample[changeable]} (v2)" if isinstance(sample[changeable], str) else 2}
+    return sample, change
 RESOURCE = re.compile(r"\A(/[A-Za-z0-9_-]+)+\Z")
 
 
@@ -74,15 +134,31 @@ print("DEP:_probe:OK", flush=True)
 
 def tests_probe(start_dir: str = "tests", minimum: int = 1) -> dict[str, str]:
     """A unittest runner that emits one marker per test. It takes away from the model the
-    duty of printing them, which is the number one cause of NO EVIDENCE."""
+    duty of printing them, which is the number one cause of NO EVIDENCE.
+
+    Two things in here were wrong and both were silent.
+
+    The marker id came from `str(test).split()[0]`, which is the bare METHOD name — so
+    `TestRepository.test_eliminar` and `TestService.test_eliminar` produced the same marker
+    and one overwrote the other's verdict. Measured on a real project: 65 tests ran and 55
+    markers came out. It is `test.id()` now, which is the full dotted path.
+
+    And `discover()` raising — the ordinary `ImportError: Start directory is not importable` —
+    left a bare traceback, no markers and exit 1, indistinguishable downstream from thirty-five
+    failing assertions. The two have opposite fixes. It says which one it is now.
+    """
     return {f"{PROBE_PREFIX}tests.py": f'''\
 """Runs the project tests and emits one marker per test. Written by Mirag."""
-import os, sys, unittest
+import os, sys, traceback, unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 class Markers(unittest.TextTestResult):
     def _id(self, test):
-        return str(test).split()[0].replace(".", "_")[:60] or "unnamed"
+        # The FULL id, not the method name: two classes routinely share a method name, and
+        # a shared marker means one test silently overwrites the other's verdict. Kept from
+        # the right, because what distinguishes them is the tail.
+        full = test.id().replace(".", "_")
+        return (full[-80:] if len(full) > 80 else full) or "unnamed"
     def addSuccess(self, test):
         super().addSuccess(test); print(f"TEST:{{self._id(test)}}:PASS", flush=True)
     def addFailure(self, test, err):
@@ -91,13 +167,23 @@ class Markers(unittest.TextTestResult):
         super().addError(test, err); print(f"TEST:{{self._id(test)}}:FAIL", flush=True)
 
 if __name__ == "__main__":
-    suite = unittest.defaultTestLoader.discover({start_dir!r}, top_level_dir=".")
+    try:
+        suite = unittest.defaultTestLoader.discover({start_dir!r}, top_level_dir=".")
+    except Exception:
+        # NOT the same event as a failing assertion, and the fix is the opposite one.
+        print("TEST:test_discovery:FAIL", flush=True)
+        print("PROBE: the tests could not be loaded at all — this is not a failing test, it "
+              "is {start_dir}/ not being importable. Check the package markers and the imports.",
+              flush=True)
+        traceback.print_exc()
+        sys.exit(1)
     result = unittest.TextTestRunner(resultclass=Markers, verbosity=0).run(suite)
     if result.testsRun < {minimum}:
         # An import that fails inside a silent try leaves 0 tests and exit 0.
         # That is NOT passing: nobody knows what was tested.
         print("TEST:test_coverage:FAIL", flush=True)
-        print(f"{{result.testsRun}} tests ran and at least {minimum} were expected", flush=True)
+        print(f"PROBE: {{result.testsRun}} tests ran and at least {minimum} were expected",
+              flush=True)
         sys.exit(1)
     sys.exit(1 if (result.failures or result.errors) else 0)
 '''}
@@ -109,14 +195,20 @@ def crud_probe(
     resource: str = "/books",
     sample: Mapping[str, Any] | None = None,
     change: Mapping[str, Any] | None = None,
+    entrypoint_name: str = "create_server",
 ) -> dict[str, str]:
     """The integration probe: real HTTP against the project's server.
 
     Every value that reaches the generated source is embedded with ``repr`` (a literal can
     never become code) and the resource is validated by :func:`safe_resource`.
+
+    ``entrypoint_name`` is the factory the certifier actually FOUND, not the one the contract
+    asked for. The language directive pushes the model towards the user's tongue, so a project
+    can perfectly well expose ``crear_servidor``; hardcoding the English name here left those
+    projects with no CRUD evidence at all and nothing on screen to say why.
     """
-    sample = dict(sample or {"title": "Hopscotch", "author": "Cortazar"})
-    change = dict(change or {"title": "Hopscotch (2nd ed)", "author": "Cortazar"})
+    sample = dict(sample or DEFAULT_SAMPLE)
+    change = dict(change or DEFAULT_CHANGE)
     field = next(iter(change))
     resource = safe_resource(resource)
     ids = crud_ids(mark)
@@ -130,6 +222,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 IDS = {list(ids)!r}
 ENTRYPOINT = {entrypoint_module!r}
+FACTORY = {entrypoint_name!r}
 RESOURCE = {resource!r}
 def mark(i, ok):
     print(f"TEST:{{IDS[i]}}:" + ("PASS" if ok else "FAIL"), flush=True)
@@ -167,9 +260,9 @@ server = None
 try:
     # importlib and not `from X import`: a module path that is not an identifier ('my-api')
     # must end in FAIL markers, not in a SyntaxError of the probe itself (a silence).
-    create_server = importlib.import_module(ENTRYPOINT).create_server
+    create_server = getattr(importlib.import_module(ENTRYPOINT), FACTORY)
 except Exception as error:
-    print(f"could not import create_server from {{ENTRYPOINT}}: {{type(error).__name__}}: {{error}}", flush=True)
+    print(f"could not import {{FACTORY}} from {{ENTRYPOINT}}: {{type(error).__name__}}: {{error}}", flush=True)
     fail_all(); timer.cancel(); sys.exit(1)
 
 try:
@@ -177,7 +270,7 @@ try:
     base = f"http://127.0.0.1:{{server.server_address[1]}}"
     threading.Thread(target=server.serve_forever, daemon=True).start()
 except Exception as error:
-    print(f"create_server did not start: {{type(error).__name__}}: {{error}}", flush=True)
+    print(f"{{FACTORY}} did not start: {{type(error).__name__}}: {{error}}", flush=True)
     fail_all(); timer.cancel(); sys.exit(1)
 
 try:

@@ -115,6 +115,8 @@ class IntentClassifier:
         self._layers = lexicon.pattern("intent.project_layers")
         self._composite = lexicon.pattern("intent.project_composite")
         self._companions = lexicon.pattern("intent.project_companions")
+        # Read here on purpose, from the same lexicon file. See asks_for_project.
+        self._project_demo = lexicon.pattern("demos.project")
         self._symbols = lexicon.pattern("intent.symbol_hints")
         self._graph = lexicon.pattern("intent.graph_hints")
         self._depth = lexicon.pattern("intent.depth_hints")
@@ -138,11 +140,28 @@ class IntentClassifier:
         Invariant pinned by a test: ``asks_for_project(q)`` implies ``asks_for_code(q)``.
         If they contradicted each other the pipeline would take the project branch without
         asking for code, or the other way round.
+
+        Second invariant, and it cost a broken delivery to find: this must never be narrower
+        than ``demos.project``. The offline catalogue reads that key to decide whether a
+        question deserves the multi-file script; this function decides whether the pipeline
+        takes the multi-file branch. Two readings of one question, and they disagreed.
+
+        "Una API de reservas. CRUD completo: crear, listar, consultar, modificar, borrar"
+        matched ``crud completo`` there and nothing here — ``crud`` is composite, but with no
+        layer and no companion the last line said no. So the scripted model was handed
+        ``books_project``, whose first call is ``specify_project``, while the pipeline was on
+        the single-file branch, whose reader wants ``files``. It found none and answered
+        ``no_files``: no project, no ZIP, and a step coloured red with nothing wrong upstream.
+
+        Reading the same pattern is what keeps them from drifting apart again. Every branch
+        of that key names a whole deliverable — ``api rest``, ``api de libros``, ``books-api``,
+        ``crud completo``, ``por dominios`` — so it belongs to this vocabulary anyway; it was
+        only ever written down in the demos' half of the lexicon.
         """
         request = request or ""
         if self._question.search(request):
             return False  # "what is a CRUD?" is not an order
-        if self._scaffolding.search(request):
+        if self._scaffolding.search(request) or self._project_demo.search(request):
             return True  # they ask for it by name
         layers = {m.group(0).lower() for m in self._layers.finditer(request)}
         if len(layers) >= MINIMUM_LAYERS:

@@ -32,7 +32,22 @@ services:
       # scripted demos answer and the model's network is never touched.
       MIRAG_OFFLINE: "${MIRAG_OFFLINE:-0}"
       MIRAG_EXECUTION: "off"       # generates code and tests, does not run them. That is QA's.
-      MIRAG_MODEL: "openrouter/free"
+      # PINNED, and `openrouter/free` is what it is pinned AGAINST.
+      #
+      # That id is valid — it routes to whichever free model happens to be available — and for
+      # the project branch it is a lottery. Measured across the nineteen free models that
+      # advertise tool support: both nemotrons cannot emit a newline inside a tool call and
+      # produce a whole project on one line per file; three others burn their entire output
+      # budget reasoning and return an empty message. `openrouter/free` was observed routing to
+      # one of those. The generation then fails in a way that looks like the agent is broken
+      # rather than like the model is.
+      #
+      # `scripts/probe_models.py` is how this name gets chosen again when it stops existing.
+      MIRAG_MODEL: "${MIRAG_BACKEND_MODEL:-inclusionai/ling-3.0-flash-vl:free}"
+      # The model's ceiling, not half of it. Reasoning tokens come out of this budget: at
+      # 16,000 a batch came back three times running with `finish_reason: length` and an empty
+      # message — the whole allowance spent thinking, nothing written.
+      MIRAG_MAX_OUTPUT_TOKENS: "${MIRAG_MAX_OUTPUT_TOKENS:-32000}"
       MIRAG_BUDGET_USD: "0.50"
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is missing from .env}"
       # Even with no published port the token is worth it: it limits the damage if another
@@ -71,7 +86,10 @@ services:
       MIRAG_HOST: 0.0.0.0
       MIRAG_OFFLINE: "${MIRAG_OFFLINE:-0}"
       MIRAG_EXECUTION: "off"       # belt and braces: this agent has no run_code tool at all
-      MIRAG_MODEL: "${MIRAG_PM_MODEL:-openrouter/free}"
+      # The PM writes prose and single-line strings, never source, so the newline defect that
+      # rules nemotron out for the backend does not touch it — and it plans well. Pinned all
+      # the same: a flow whose two halves change model between deploys is one nobody can debug.
+      MIRAG_MODEL: "${MIRAG_PM_MODEL:-nvidia/nemotron-3-ultra-550b-a55b:free}"
       MIRAG_BUDGET_USD: "0.50"
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is missing from .env}"
       # ITS OWN TOKEN, and the `:?` makes forgetting it fail the deployment rather than start

@@ -34,7 +34,15 @@ SEGMENT = re.compile(r"\A[A-Za-z0-9_][A-Za-z0-9._-]{0,63}\Z")
 ALLOWED_HIDDEN = frozenset({".gitignore", ".env.example", ".dockerignore", ".editorconfig"})
 FORBIDDEN_SEGMENTS = frozenset({"__pycache__", ".git", ".env", "node_modules", ".venv", "venv", ".DS_Store"})
 EXTENSIONS = frozenset({".py", ".js", ".ts", ".json", ".md", ".txt", ".sql", ".yml", ".yaml",
-                        ".toml", ".cfg", ".ini", ".html", ".css", ".example", ".gitignore"})
+                        ".toml", ".cfg", ".ini", ".html", ".css", ".example", ".gitignore", ".sh"})
+EXTENSIONLESS = frozenset({"Dockerfile", "Makefile", "LICENSE", "NOTICE", "Procfile",
+                           "README", "CHANGELOG", "AUTHORS", "VERSION", "CODEOWNERS"})
+"""Ordinary files of a delivered project that simply have no extension.
+
+The allow-list was written against the books demo, whose fourteen files all end in `.py` or
+`.md`, so nothing ever hit this. A `docs` group that plans a `Dockerfile` and a `LICENSE` —
+both normal, neither in the demo — had them rejected one by one, and the group reported an
+error for files it had written correctly."""
 FILE_KINDS = ("code", "test", "entrypoint", "config", "doc")
 
 
@@ -69,7 +77,8 @@ def safe_path(path: object) -> str:
         if part not in ALLOWED_HIDDEN and not SEGMENT.match(part):
             raise ForbiddenPathError(f"segment with forbidden characters: {part!r}")
     last = parts[-1]
-    if PurePosixPath(last).suffix.lower() not in EXTENSIONS and last not in ALLOWED_HIDDEN:
+    if (PurePosixPath(last).suffix.lower() not in EXTENSIONS
+            and last not in ALLOWED_HIDDEN and last not in EXTENSIONLESS):
         raise ForbiddenPathError(f"extension not allowed in {last!r}")
     return "/".join(parts)
 
