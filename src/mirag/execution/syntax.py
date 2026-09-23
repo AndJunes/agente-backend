@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from mirag.execution.runner import CodeRunner
+from mirag.execution.backend import CodeExecutionBackend
 from mirag.execution.verdict import ExecutionResult, ExecutionStatus
 
 
@@ -17,7 +17,7 @@ class SyntaxChecker:
     JavaScript is not: ``node --check`` is a child process. Counting that NOT EXECUTED as a
     syntax error would call perfectly valid code broken."""
 
-    def __init__(self, runner: CodeRunner) -> None:
+    def __init__(self, runner: CodeExecutionBackend) -> None:
         self._runner = runner
 
     @property

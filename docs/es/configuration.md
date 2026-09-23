@@ -22,6 +22,10 @@ tienen prioridad sobre `.env`.
 | `MIRAG_SYMBOLS_ROOT` | la carpeta `src` | El código que lee el índice de símbolos. |
 | `MIRAG_VECTOR_BACKEND` | `local` | `local` (n-gramas de caracteres, gratis) u `openrouter` (embeddings reales, con fallback a local). |
 | `MIRAG_CODE_TIMEOUT_S` | `30` | Timeout de cada ejecución de código. El código ejecutado no recibe ninguna credencial: solo `PATH`, `HOME`, el locale y las variables de temporales. |
+| `MIRAG_EXECUTION_BACKEND` | `subprocess` | Dónde corre de verdad una prueba. `subprocess`: el host, con lista blanca y entorno reducido (arriba). `docker`: un contenedor descartable y aislado de red por prueba, construido desde `docker/runner.Dockerfile` con un set curado de librerías ya instaladas — hay que construirlo una vez con `make runner-image` antes de usarlo. Cualquier otro valor cae a `subprocess`. |
+| `MIRAG_DOCKER_IMAGE` | `mirag-runner:latest` | Imagen desde la que `DockerCodeRunner` lanza los contenedores. |
+| `MIRAG_DOCKER_MEMORY` / `MIRAG_DOCKER_CPUS` / `MIRAG_DOCKER_PIDS_LIMIT` | `512m` / `1.0` / `128` | Techo de recursos para UN contenedor descartable — deliberadamente más ajustado que los límites del servicio `mirag` de larga vida en `docker-compose.yml`, porque esto acota una sola prueba. |
+| `MIRAG_DOCKER_CLI_TIMEOUT_S` | `10` | Segundos permitidos para el propio CLI de `docker` (chequeo de la imagen, limpieza forzada) — separado de `MIRAG_CODE_TIMEOUT_S`, que acota lo que corre *dentro* del contenedor. |
 | `MIRAG_HTTP_LOG` | - | `1` para imprimir el access log HTTP. |
 
 ## Feature flags

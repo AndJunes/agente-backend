@@ -22,7 +22,7 @@ from __future__ import annotations
 import ast
 import subprocess
 import sys
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -148,8 +148,20 @@ def worst(findings: Iterable[Finding]) -> Severity | None:
 
 
 class DependencyAnalyzer:
-    def __init__(self, interpreters: InterpreterRegistry) -> None:
+    def __init__(self, interpreters: InterpreterRegistry,
+                 probe_argv: Callable[[str], list[str]] | None = None) -> None:
         self._interpreters = interpreters
+        # Not routed through a `CodeExecutionBackend`: this check runs UNCONDITIONALLY, even
+        # with execution switched off, because "is this importable here" is a fact independent
+        # of whether the agent is allowed to run the project's own tests. `runner.run()` would
+        # short-circuit to `not_executed` the moment `enabled` is `False`, which would silently
+        # turn every accurate answer here into "could not be observed". `probe_argv` still lets
+        # the docker backend point this at the SAME interpreter its tests actually run against,
+        # without adopting the runner's enabled-gating.
+        self._probe_argv = probe_argv or self._host_probe_argv
+
+    def _host_probe_argv(self, script: str) -> list[str]:
+        return [self._interpreters.resolve("python3") or sys.executable, "-c", script]
 
     @staticmethod
     def module_map(project: Project) -> dict[str, str]:
@@ -216,12 +228,11 @@ class DependencyAnalyzer:
         names = sorted({r for r in roots if r})
         if not names:
             return {}
-        binary = self._interpreters.resolve("python3") or sys.executable
         script = ("import importlib.util as u\n"
                   f"for m in {names!r}:\n"
                   "    print(m, u.find_spec(m) is not None, flush=True)\n")
         try:
-            completed = subprocess.run([binary, "-c", script], capture_output=True, text=True,
+            completed = subprocess.run(self._probe_argv(script), capture_output=True, text=True,
                                        encoding="utf-8", errors="replace", timeout=20, check=False)
         except (OSError, subprocess.SubprocessError):
             return {n: None for n in names}

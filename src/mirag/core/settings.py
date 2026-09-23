@@ -128,6 +128,29 @@ class Settings:
     (running them is the QA agent's job) and the verdict is ``not_executed`` - never a pass,
     never a fail. The machinery stays whole: the demos and the benchmarks switch it on."""
 
+    execution_backend: str = "subprocess"
+    """Where a probe actually runs. ``"subprocess"``: the host, allow-listed and stripped down
+    (``execution/runner.py``) - today's behaviour, unchanged for anyone who has not opted in.
+    ``"docker"``: a disposable, capped, network-isolated container per probe
+    (``execution/docker_runner.py``), built from ``docker/runner.Dockerfile``. Anything else
+    falls back to ``"subprocess"`` rather than raising - a typo here should not take execution
+    down, the same lenient convention ``vector_backend`` already uses.
+
+    Defaults to the host: Docker Desktop is not guaranteed to be on every machine this agent
+    runs on, the same reasoning behind every other safety-relevant default here."""
+
+    docker_image: str = "mirag-runner:latest"
+    docker_memory: str = "512m"
+    docker_cpus: str = "1.0"
+    docker_pids_limit: int = 128
+    """Ceilings for ONE disposable probe container - tighter than the long-lived `mirag`
+    service's own (1g / 1.5 cpus / 256 pids in docker-compose.yml): this runs one bounded test
+    invocation, not a server absorbing concurrent requests."""
+
+    docker_cli_timeout_s: int = 10
+    """Seconds allowed for the `docker` CLI itself (the image-existence check, forced cleanup)
+    - separate from `code_timeout_s`, which bounds what runs INSIDE the container."""
+
     knowledge_dir: Path | None = None
     """Where the corpus lives. ``None`` means the one bundled with the package.
 
@@ -221,6 +244,12 @@ class Settings:
             vector_backend=(env.get("MIRAG_VECTOR_BACKEND") or "local").strip().lower(),
             code_timeout_s=_int(env, "MIRAG_CODE_TIMEOUT_S", 30),
             execution=_flag(env, "MIRAG_EXECUTION", False),
+            execution_backend=(env.get("MIRAG_EXECUTION_BACKEND") or "subprocess").strip().lower(),
+            docker_image=(env.get("MIRAG_DOCKER_IMAGE") or "").strip() or "mirag-runner:latest",
+            docker_memory=(env.get("MIRAG_DOCKER_MEMORY") or "").strip() or "512m",
+            docker_cpus=(env.get("MIRAG_DOCKER_CPUS") or "").strip() or "1.0",
+            docker_pids_limit=_int(env, "MIRAG_DOCKER_PIDS_LIMIT", 128),
+            docker_cli_timeout_s=_int(env, "MIRAG_DOCKER_CLI_TIMEOUT_S", 10),
             knowledge_dir=Path(knowledge_dir) if knowledge_dir else None,
             locales_dir=Path(locales_dir) if locales_dir else None,
             supported_locales=locales or None,

@@ -13,7 +13,6 @@ THE DISTINCTION THAT HOLDS EVERYTHING UP
 from __future__ import annotations
 
 import re
-
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -21,7 +20,7 @@ from typing import Any
 
 from mirag.core.timing import Deadline, Stopwatch
 from mirag.evidence.properties import EvidenceBuilder, EvidenceRow
-from mirag.execution.runner import CodeRunner
+from mirag.execution.backend import CodeExecutionBackend
 from mirag.execution.syntax import SyntaxChecker
 from mirag.execution.verdict import ExecutionResult, ExecutionStatus
 from mirag.i18n.catalog import MessageCatalog
@@ -360,7 +359,7 @@ class ProjectCertifier:
     """Walks the whole chain and returns a :class:`Certificate`. It calls no model unless a
     repairer is given, and even then at most :data:`MAX_REPAIRS` times."""
 
-    def __init__(self, runner: CodeRunner, syntax: SyntaxChecker, analyzer: DependencyAnalyzer,
+    def __init__(self, runner: CodeExecutionBackend, syntax: SyntaxChecker, analyzer: DependencyAnalyzer,
                  evidence: EvidenceBuilder | None = None) -> None:
         self._runner = runner
         self._syntax = syntax

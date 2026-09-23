@@ -18,6 +18,7 @@ from mirag.api.router import Router
 from mirag.api.schemas import MAX_BODY_BYTES, ChatRequest, ValidationError
 from mirag.core.errors import MiragError, ModelUnreachableError, RateLimitedError
 from mirag.core.text import sha256_hex
+from mirag.execution.docker_runner import DockerCodeRunner
 from mirag.projects.artifacts import VALID_ID
 from mirag.projects.model import safe_name
 
@@ -466,6 +467,11 @@ def startup_notes(container: Container, host: str) -> list[str]:
     if not settings.execution:
         notes.append("Execution is off: code and tests are delivered WITHOUT running them and the "
                       "verdict is 'not executed'. Switch it on with MIRAG_EXECUTION=on.")
+    if (settings.execution and isinstance(container.runner, DockerCodeRunner)
+            and not container.runner.image_available()):
+        notes.append(f"MIRAG_EXECUTION_BACKEND=docker but the image {settings.docker_image!r} "
+                      "was not found. Build it once with 'make runner-image', or every probe "
+                      "will answer NOT EXECUTED until you do.")
     if host not in LOOPBACK:
         notes.append(f"WARNING: listening on {host}, not only on loopback, "
                      f"{'with' if settings.api_token else 'WITHOUT'} a token. Publish it only against "

@@ -19,7 +19,9 @@ from mirag.agent.loop import AgentLoop
 from mirag.api.chat_service import ChatService
 from mirag.core.settings import Settings
 from mirag.evidence.claims import ClaimAuditor
+from mirag.execution.backend import CodeExecutionBackend
 from mirag.execution.calculator import SafeCalculator
+from mirag.execution.docker_runner import DockerCodeRunner
 from mirag.execution.interpreters import InterpreterRegistry
 from mirag.execution.runner import CodeRunner
 from mirag.execution.syntax import SyntaxChecker
@@ -30,11 +32,11 @@ from mirag.observability.tracing import TraceWriter
 from mirag.offline.demos import DemoCatalog
 from mirag.paths import FEATURE_GAINS_FILE, WEB_DIR
 from mirag.pipeline.code_stage import CodeDeliveryStage
-from mirag.pipeline.prompts import SYSTEM_PROMPT
 from mirag.pipeline.delivery import OutputWriter
 from mirag.pipeline.knowledge_stage import KnowledgeStage
 from mirag.pipeline.orchestrator import QuestionPipeline
 from mirag.pipeline.project_stage import ProjectDeliveryStage
+from mirag.pipeline.prompts import SYSTEM_PROMPT
 from mirag.projects.artifacts import ArtifactRegistry
 from mirag.projects.certification import ProjectCertifier
 from mirag.projects.dependencies import DependencyAnalyzer
@@ -71,7 +73,7 @@ class Container:
     i18n: I18n
     gate: FeatureGate
     interpreters: InterpreterRegistry
-    runner: CodeRunner
+    runner: CodeExecutionBackend
     syntax: SyntaxChecker
     engines: RetrievalEngineFactory
     symbol_cache: SymbolIndexCache
@@ -153,6 +155,7 @@ class Container:
             "version": __version__,
             "offline": self.settings.offline,
             "execution": self.settings.execution,
+            "execution_backend": self.settings.execution_backend,
             "token_required": bool(self.settings.api_token),
             "model": self.settings.model,
             "locales": list(self.i18n.supported),
@@ -172,6 +175,29 @@ class Container:
                     "wallet": None, "last_payment": None, "links": {}}
 
 
+def _docker_probe_argv(settings: Settings) -> Callable[[str], list[str]]:
+    """How `DependencyAnalyzer` checks whether an external import is importable, when the
+    docker backend is selected: inside the SAME image the tests actually run in, not the host's
+    Python. Without this, a curated library the runner image genuinely has would still be
+    reported as a `missing_dependency` LIMIT, because the analyzer would be asking the wrong
+    interpreter.
+
+    Its own hardening stanza, scaled down from `DockerCodeRunner`'s: this is a sub-second
+    `importlib.util.find_spec` check, not a test run, so tighter ceilings are enough and starting
+    it faster matters more than for a probe that already has real work to do.
+    """
+    def build(script: str) -> list[str]:
+        return [
+            "docker", "run", "--rm", "--network", "none",
+            "--security-opt", "no-new-privileges", "--cap-drop", "ALL", "--read-only",
+            "--tmpfs", "/tmp:rw,noexec,nosuid,size=32m",
+            "--pids-limit", "64", "--memory", "256m",
+            "--user", "10001:10001", "-e", "HOME=/tmp",
+            settings.docker_image, "python3", "-c", script,
+        ]
+    return build
+
+
 def build_container(settings: Settings | None = None, model_builder: ModelBuilder | None = None,
                     gains: GainsRepository | None = None, corpus_loader: CorpusLoader | None = None,
                     tools_builder: Callable[[RetrievalEngine, str], ToolRegistry] | None = None) -> Container:
@@ -187,7 +213,17 @@ def build_container(settings: Settings | None = None, model_builder: ModelBuilde
     i18n = I18n(settings.default_locale, **overrides)
     gate = FeatureGate(settings.env, gains or GainsRepository(FEATURE_GAINS_FILE))
     interpreters = InterpreterRegistry()
-    runner = CodeRunner(interpreters, timeout_s=settings.code_timeout_s, enabled=settings.execution)
+    runner: CodeExecutionBackend
+    if settings.execution_backend == "docker":
+        runner = DockerCodeRunner(
+            image=settings.docker_image, timeout_s=settings.code_timeout_s,
+            enabled=settings.execution, docker_timeout_s=settings.docker_cli_timeout_s,
+            memory=settings.docker_memory, cpus=settings.docker_cpus,
+            pids_limit=settings.docker_pids_limit)
+        analyzer = DependencyAnalyzer(interpreters, probe_argv=_docker_probe_argv(settings))
+    else:
+        runner = CodeRunner(interpreters, timeout_s=settings.code_timeout_s, enabled=settings.execution)
+        analyzer = DependencyAnalyzer(interpreters)
     syntax = SyntaxChecker(runner)
     vectors = VectorStoreFactory(settings.vector_backend, settings.openrouter_api_key, settings.offline,
                                  settings.embeddings_dir)
@@ -208,7 +244,7 @@ def build_container(settings: Settings | None = None, model_builder: ModelBuilde
         traces=TraceWriter(settings.traces_dir / "pipeline.jsonl"),
         gateways=gateways,
         generator=ProjectGenerator(interpreters),
-        certifier=ProjectCertifier(runner, syntax, DependencyAnalyzer(interpreters)),
+        certifier=ProjectCertifier(runner, syntax, analyzer),
         packager=Packager(),
         tools_builder=tools_builder,
     )
