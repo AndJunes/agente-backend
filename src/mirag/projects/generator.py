@@ -238,6 +238,13 @@ MANDATORY PROJECT RULES (set by Mirag, not negotiable):
 - The entrypoint exposes `create_server(port=0, db=":memory:")` which RETURNS an already built
   ThreadingHTTPServer WITHOUT starting it. Whoever calls it starts it.
 - NOTHING runs when a module is imported. Start-up goes under `if __name__ == "__main__":`.
+- NODE.JS: the factory lives in a module that is only imported (`src/server.js`), and the file
+  `npm start` runs (`index.js`) STARTS the server UNCONDITIONALLY, with nothing wrapped around
+  it. Never decide "am I the main module?" by comparing `import.meta.url` with
+  `process.argv[1]`: on Windows that comparison is always false (`file:///C:/x/index.js`
+  against `C:\\x\\index.js`), so the server silently never starts and the process exits with code
+  0. `package.json` must have `"start"` and a `"test"` script that runs `node --test tests/`, and
+  must list every package the code imports under `dependencies`.
 - THE DATABASE IS **ONE CONNECTION**, opened once inside `create_server` and shared by every
   request. Pass it down; do not open one per request and do not close it between requests.
   This is not a style preference, it is how `:memory:` works: every `sqlite3.connect(":memory:")`
@@ -461,6 +468,31 @@ class ProjectGenerator:
             added.append("README.md")
         return plan, added
 
+    @staticmethod
+    def drop_foreign_tests(plan: list[dict[str, Any]],
+                           spec: Mapping[str, Any] | None) -> tuple[list[dict[str, Any]], list[str]]:
+        """Remove test files written in another language than the project.
+
+        Run BEFORE `complete_plan`, so that when the only tests a plan had were the wrong
+        language's, the right ones are added in their place instead of the plan being left
+        "with tests" that can never run.
+
+        A model given a Python-flavoured contract plans `tests/__init__.py` and
+        `tests/test_server.py` for an Express server. Nothing after this can make those pass:
+        they import a module that does not exist in a language that does not have modules like
+        that, and the harness counts them as the project's own failing tests.
+        """
+        language = languages.detect(spec, [str(f.get("path", "")) for f in plan])
+        if language is None:
+            return plan, []
+        dropped = [str(f["path"]) for f in plan if languages.is_foreign_test(str(f.get("path", "")), language)]
+        if not dropped:
+            return plan, []
+        gone = set(dropped)
+        kept = [{**f, "depends_on": [d for d in (f.get("depends_on") or []) if d not in gone]}
+                for f in plan if f.get("path") not in gone]
+        return kept, dropped
+
     def validate_plan(self, plan: Sequence[Mapping[str, Any]], spec: Mapping[str, Any] | None,
                       catalog: MessageCatalog) -> list[str]:
         """What a plan must bring for the rest to mean anything."""
@@ -595,6 +627,12 @@ class ProjectGenerator:
             # and the file disappearing between the blueprint and the project.
             if not str(entry.get("group") or "").strip():
                 entry["group"] = _group_for(entry)
+        plan, dropped = self.drop_foreign_tests(plan, spec)
+        if dropped:
+            note(GenerationStep("plan", "fallback",
+                                t("generation.foreign_tests_dropped", count=len(dropped),
+                                  names=", ".join(dropped[:4]) + ("…" if len(dropped) > 4 else "")),
+                                {"dropped": dropped}))
         plan, added = self.complete_plan(plan, spec)
         if added:
             note(GenerationStep("plan", "fallback", t("generation.tests_added", count=len(added)), {"added": added}))

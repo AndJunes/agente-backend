@@ -238,6 +238,7 @@
     "no_plan": "el modelo no devolvió un plano utilizable",
     "tests_added": "el plano no traía tests: se añadieron {count} archivos",
     "test_command_replaced": "el comando de test '{old}' no puede correr aquí: se usa '{new}'",
+    "foreign_tests_dropped": "{count} archivos de test estaban en otro lenguaje que el proyecto y se descartaron: {names}",
     "specified": "{name} · {framework} · {count} archivos planeados",
     "call_cap": "tope de {cap} llamadas alcanzado: este grupo no se generó",
     "group_files": "{count} archivos",

@@ -9,8 +9,9 @@ that was not observed, and today that means saying `not_executed` instead of fak
 
 *[Leer en español](README.es.md)*
 
-Python standard library only: **the core has zero third-party dependencies** (checked by an
-architecture test). The optional Stellar identity layer declares `stellar-sdk` as an extra.
+Python standard library only: **the core has zero third-party dependencies**
+(`dependencies = []` in `pyproject.toml`). The optional Stellar identity layer declares
+`stellar-sdk` as an extra.
 English and Spanish are fully supported: knowledge corpus, UI, answers and language heuristics.
 
 ```bash
@@ -65,9 +66,10 @@ whole for you to judge.
 │   ├── locales/{en,es}/     messages, UI strings, language heuristics, corpus markers
 │   ├── knowledge/{en,es}/   the knowledge corpus: 19 senior-backend boxes per language
 │   └── web/index.html       the page
-├── tests/                   unit, integration and architecture suites (pytest)
+├── src/mirag_pm/            the PM agent: the same code, told it is a different agent
+├── src/mirag_manager/       both agents behind one port (`python -m mirag_manager serve`)
 ├── benchmarks/              retrieval and project benchmarks, datasets and results
-├── scripts/                 manual demos (Stellar identity)
+├── scripts/                 the checks CI runs, the model probe, and the Stellar demo
 ├── docs/{en,es}/            documentation in both languages
 └── docs/history/            the reports that explain how the project got here (Spanish)
 ```
@@ -82,7 +84,80 @@ mirag features                       # which pipeline stages are on, and why
 docker compose up -d                 # the same, in an unprivileged container
 ```
 
-`make run`, `make lint`, `make demo` do the same on systems with `make`.
+`make run`, `make run-manager`, `make lint`, `make typecheck` and `make demo` do the same on
+systems with `make`. It is optional: each target is one `python -m ...` line in the `Makefile`,
+which is what to run on Windows without it.
+
+## Running it with CodeZard
+
+The CodeZard screen does not talk to `mirag serve`. It needs **two** agents, this one (the
+backend agent) and the PM (`mirag_pm`), and it reaches both through the gateway.
+`mirag_manager` runs them in one process, on one port, told apart by the first segment of the
+path:
+
+| Path | Agent | Operations |
+|---|---|---|
+| `/backend/...` | `mirag` | `chat` |
+| `/pm/...` | `mirag_pm` | `analyze`, `plan`, `revise` |
+
+```bash
+python -m venv .venv                       # once
+# PowerShell: .venv\Scripts\Activate.ps1        bash/zsh: source .venv/bin/activate
+pip install -e ".[dev]"                    # once
+cp .env.example .env                       # once (PowerShell: Copy-Item .env.example .env)
+
+python -m mirag_manager serve              # or: make run-manager
+#   backend: chat
+#   pm: analyze, plan, revise
+```
+
+Edit `.env` first. These are the values that matter for CodeZard:
+
+| Variable | Set it to | Why |
+|---|---|---|
+| `MIRAG_PORT` | `8100` | The example says `8000`, which is the gateway's port. The gateway's `.env` points at `8100` |
+| `MIRAG_TOKEN` | a secret | The gateway sends it as `X-Mirag-Token`, so it must equal `MIRAG_TOKEN` in `CodeZard/.env`. One token covers both agents |
+| `MIRAG_OFFLINE` | `0` | `1` (the default) is the rehearsal lock: the PM replays one fixed plan, labelled simulated, and this agent only answers its prepared demos. `0` calls the model for real |
+| `OPENROUTER_API_KEY` | your key | Needed with `MIRAG_OFFLINE=0` |
+| `MIRAG_BACKEND_MODEL`, `MIRAG_PM_MODEL` | optional | One model per agent. Unset, both use `MIRAG_MODEL` |
+| `MIRAG_EXECUTION` | `off` or `true` | Whether the generated code and its tests are run. `off`: they are delivered unrun and the verdict is `not_executed` |
+| `MIRAG_CONSOLE` | `1`, optional | Lets the screen run commands in a delivered project. The gateway also needs `GATEWAY_ORCHESTRATION__CONSOLE=true` |
+
+Check that it answers:
+
+```bash
+curl http://127.0.0.1:8100/backend/api/v1/health
+curl http://127.0.0.1:8100/pm/api/v1/health
+```
+
+Then start the gateway (`CodeZard`, command `gateway`) and the screen (`codezard-front`, command
+`npm run dev`); the `codezard-front` README has the whole walkthrough and a table of what to
+check when something fails. A few things that go wrong here:
+
+- **`mirag serve` is the wrong process for the screen.** It only serves `/api/v1/...`, so every
+  `/pm/...` call is a `404`. Use `python -m mirag_manager serve`.
+- **The `mirag-manager` command** is declared in `pyproject.toml`, but an environment installed
+  before it was added does not have it. `python -m mirag_manager serve` always works.
+- **On Windows, a restart can leave two managers on the same port.** `netstat -ano | findstr :8100`
+  should list one listener.
+- **In Docker**, `CodeZard/docker-compose.local.yml` builds this folder's `Dockerfile`
+  (`--target base`) and runs the manager in a container.
+
+## Checks
+
+There is no test suite in this checkout (`tests/` was removed). What CI runs is:
+
+```bash
+python -m ruff check src benchmarks scripts     # make lint
+python -m mypy                                  # make typecheck
+python -m mirag demo all                        # make demo; add --locale es for the Spanish run
+python -m mirag_pm.cli doctor                   # every PM locale loads, and its four indices
+python -m mirag_pm.cli coverage --by-domain     # every PM document is reachable by a skill
+python scripts/check_delivery.py                # a project that does not match its plan is not deliverable
+python scripts/check_deadlines.py               # a hanging call ends, and a closed tab stops the work
+python scripts/check_repair.py                  # a failing test tells the repairer where to look
+python scripts/check_parallel.py                # batches run at once without losing files or miscounting calls
+```
 
 ## The spending cap
 

@@ -43,8 +43,24 @@ Brings in the deployment work done on `main` (PR #1) on the old flat layout, por
   Adding a language is one row.
 - A `node:test` harness (`probes.node_tests_probe`): a Node.js project's tests are executed and
   each one becomes a `TEST:<id>:PASS|FAIL` marker, like the `unittest` probe does for Python.
+- The console (`MIRAG_CONSOLE`, off by default): `POST /api/v1/artifacts/{id}/exec` runs one
+  command — `node`, `npm`, `npx`, `python3`, `python`, `pytest` or `curl`, no shell — in a
+  per-artifact copy of a delivered project and streams stdout, stderr and the exit as SSE. A
+  server can stay running while another command probes it; hanging up stops the whole process
+  tree. Behind the token like `/chat` and `/download`, capped in time (`MIRAG_CONSOLE_TIMEOUT_S`)
+  and output, with the same stripped environment the test probes get. It is not a sandbox: it
+  runs as this user, with this machine's network.
 
 ### Fixed
+
+- A Node.js plan can no longer keep test files in another language: `drop_foreign_tests` removes
+  `tests/__init__.py` and `tests/test_*.py` from a JavaScript plan before it is completed (a
+  TypeScript project keeps its JavaScript, a Kotlin one its Java). A Python-flavoured contract
+  made the model plan them anyway.
+- The contract tells a Node.js model to start the server unconditionally in the file `npm start`
+  runs. Guarding start-up with `import.meta.url === file://${process.argv[1]}` is always false on
+  Windows, so a generated `npm start` exited 0 without ever listening — something no test caught
+  and the console made visible the first time it ran one.
 
 - Tests follow the project's language. `complete_plan` added `unittest` files whenever no
   `tests/*.py` existed — to a Node.js plan whose JavaScript tests were already there — and the

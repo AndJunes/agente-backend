@@ -239,6 +239,7 @@
     "no_plan": "the model did not return a usable plan",
     "tests_added": "the plan had no tests: {count} files were added",
     "test_command_replaced": "the test command '{old}' cannot run here: '{new}' is used instead",
+    "foreign_tests_dropped": "{count} test files were in another language than the project and were dropped: {names}",
     "specified": "{name} · {framework} · {count} files planned",
     "call_cap": "cap of {cap} calls reached: this group was not generated",
     "group_files": "{count} files",

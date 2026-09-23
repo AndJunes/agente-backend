@@ -128,6 +128,19 @@ class Settings:
     (running them is the QA agent's job) and the verdict is ``not_executed`` - never a pass,
     never a fail. The machinery stays whole: the demos and the benchmarks switch it on."""
 
+    console: bool = False
+    """Let a caller run commands against a delivered project (``POST .../artifacts/{id}/exec``).
+
+    OFF unless asked for, and it is not the same switch as `execution`. Verification runs code
+    Mirag chose, against a fixed probe. This runs whatever command the caller types, on this
+    machine, in a copy of the project: an interpreter and a package manager on demand. That is
+    exactly what a person needs to see a generated server start, and exactly what must not be
+    reachable by anybody who happens to find the port — so it needs the flag AND the token."""
+
+    console_timeout_s: int = 600
+    """How long one console command may run before it is stopped. A server left running is the
+    normal case, so this is minutes, not the 30 seconds a test gets."""
+
     execution_backend: str = "subprocess"
     """Where a probe actually runs. ``"subprocess"``: the host, allow-listed and stripped down
     (``execution/runner.py``) - today's behaviour, unchanged for anyone who has not opted in.
@@ -199,6 +212,10 @@ class Settings:
         return self.data_dir / "traces"
 
     @property
+    def workspaces_dir(self) -> Path:
+        return self.data_dir / "workspaces"
+
+    @property
     def embeddings_dir(self) -> Path:
         return self.data_dir / "embeddings"
 
@@ -244,6 +261,8 @@ class Settings:
             vector_backend=(env.get("MIRAG_VECTOR_BACKEND") or "local").strip().lower(),
             code_timeout_s=_int(env, "MIRAG_CODE_TIMEOUT_S", 30),
             execution=_flag(env, "MIRAG_EXECUTION", False),
+            console=_flag(env, "MIRAG_CONSOLE", False),
+            console_timeout_s=_int(env, "MIRAG_CONSOLE_TIMEOUT_S", 600),
             execution_backend=(env.get("MIRAG_EXECUTION_BACKEND") or "subprocess").strip().lower(),
             docker_image=(env.get("MIRAG_DOCKER_IMAGE") or "").strip() or "mirag-runner:latest",
             docker_memory=(env.get("MIRAG_DOCKER_MEMORY") or "").strip() or "512m",

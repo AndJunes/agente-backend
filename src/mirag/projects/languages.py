@@ -149,6 +149,35 @@ def is_source(path: str) -> bool:
     return PurePosixPath(path).suffix.lower() in SOURCE_EXTENSIONS
 
 
+_COMPATIBLE: dict[str, frozenset[str]] = {
+    "typescript": frozenset({"javascript"}), "javascript": frozenset({"typescript"}),
+    "java": frozenset({"kotlin", "scala"}), "kotlin": frozenset({"java"}), "scala": frozenset({"java"}),
+    "c": frozenset({"cpp"}), "cpp": frozenset({"c"}),
+}
+"""Languages that live in one project without either being "the wrong one": a TypeScript project
+has JavaScript in it, a Kotlin one has Java."""
+
+
+def owner_of(path: str) -> Language | None:
+    """The language a file's suffix belongs to, or ``None`` for data, docs and config."""
+    suffix = PurePosixPath(path).suffix.lower()
+    return next((lang for lang in LANGUAGES if suffix in lang.extensions), None)
+
+
+def is_foreign_test(path: str, language: Language) -> bool:
+    """A test file in a different language than the project it is meant to test.
+
+    `tests/__init__.py` and `tests/test_server.py` in an Express project are the case that made
+    this: a `unittest` module for a server it cannot import can only ever fail, and it fails the
+    whole verification for a project whose real tests were sitting next to it.
+    """
+    if not looks_like_test(path):
+        return False
+    other = owner_of(path)
+    return (other is not None and other.name != language.name
+            and other.name not in _COMPATIBLE.get(language.name, frozenset()))
+
+
 def has_tests(paths: Iterable[str], language: Language | None) -> bool:
     """Whether there is a test file the project's language can use.
 

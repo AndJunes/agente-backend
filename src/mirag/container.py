@@ -21,6 +21,7 @@ from mirag.core.settings import Settings
 from mirag.evidence.claims import ClaimAuditor
 from mirag.execution.backend import CodeExecutionBackend
 from mirag.execution.calculator import SafeCalculator
+from mirag.execution.console import ProjectConsole
 from mirag.execution.docker_runner import DockerCodeRunner
 from mirag.execution.interpreters import InterpreterRegistry
 from mirag.execution.runner import CodeRunner
@@ -100,6 +101,12 @@ class Container:
     cannot express that through `/chat`, whose request body has room for a question and
     nothing else.
     """
+
+    console: ProjectConsole | None = None
+    """Runs a caller's commands against a delivered project, or ``None``.
+
+    Present in every container and switched on by `Settings.console`; the HTTP layer only
+    exposes it on an agent that produces projects at all (see `build_router`)."""
 
     tools_builder: Callable[[RetrievalEngine, str], ToolRegistry] | None = None
     """How this agent's tools are built. ``None`` means the backend's own set.
@@ -229,6 +236,9 @@ def build_container(settings: Settings | None = None, model_builder: ModelBuilde
                                  settings.embeddings_dir)
     artifacts = ArtifactRegistry(settings.artifacts_dir)
     artifacts.sweep_orphans()  # without this the folder grows without a ceiling
+    console = ProjectConsole(settings.workspaces_dir, enabled=settings.console,
+                             timeout_s=settings.console_timeout_s)
+    console.sweep()  # copies with a `node_modules` in them are the biggest thing on this disk
     gateways = LLMGatewayFactory(settings, model_builder) if model_builder else LLMGatewayFactory(settings)
     return Container(
         settings=settings,
@@ -246,5 +256,6 @@ def build_container(settings: Settings | None = None, model_builder: ModelBuilde
         generator=ProjectGenerator(interpreters),
         certifier=ProjectCertifier(runner, syntax, analyzer),
         packager=Packager(),
+        console=console,
         tools_builder=tools_builder,
     )
