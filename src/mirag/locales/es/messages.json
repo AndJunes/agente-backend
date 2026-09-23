@@ -169,7 +169,7 @@
     },
     "problem": {
       "no_files": "el proyecto no tiene archivos",
-      "no_tests": "no hay ningún .py bajo tests/, que es donde mira el arnés",
+      "no_tests": "no hay ningún archivo de tests en el lenguaje del proyecto (bajo tests/ en Python y Node.js, que es donde mira el arnés)",
       "no_code": "no hay ningún archivo de código",
       "missing_init": "{package}/ no tiene __init__.py"
     },
@@ -201,6 +201,9 @@
     "documented": {
       "fails": "`{command}` falla: {header}",
       "ok": "`{command}` corre sin errores"
+    },
+    "tests": {
+      "no_harness": "sin ejecutar: Mirag no puede correr tests de {language} en esta máquina. Los tests se entregan en el lenguaje del proyecto, para quien pueda correrlos"
     },
     "crud": {
       "skipped": "el proyecto no expone una fábrica de servidor (create_server): no hay API que ejercitar"
@@ -234,6 +237,7 @@
   "generation": {
     "no_plan": "el modelo no devolvió un plano utilizable",
     "tests_added": "el plano no traía tests: se añadieron {count} archivos",
+    "test_command_replaced": "el comando de test '{old}' no puede correr aquí: se usa '{new}'",
     "specified": "{name} · {framework} · {count} archivos planeados",
     "call_cap": "tope de {cap} llamadas alcanzado: este grupo no se generó",
     "group_files": "{count} archivos",

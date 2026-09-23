@@ -36,6 +36,26 @@ Brings in the deployment work done on `main` (PR #1) on the old flat layout, por
   `docs/{en,es}/deployment.md`.
 - The earlier variable names `MIRAG_MODELO`, `LIMITE_USD` and `MIRAG_EJECUCION` are read when
   the new name is absent.
+- `mirag/projects/languages.py`: one table of languages (Python, JavaScript, TypeScript, Go,
+  Java, Kotlin, Rust, Ruby, PHP, C#, C, C++, Swift, Dart, Elixir, Scala, Haskell, Clojure, Lua,
+  Perl, R, Julia) instead of Python assumed in four places. It drives language detection, which
+  file counts as a test, the default test command and the extensions a project may contain.
+  Adding a language is one row.
+- A `node:test` harness (`probes.node_tests_probe`): a Node.js project's tests are executed and
+  each one becomes a `TEST:<id>:PASS|FAIL` marker, like the `unittest` probe does for Python.
+
+### Fixed
+
+- Tests follow the project's language. `complete_plan` added `unittest` files whenever no
+  `tests/*.py` existed — to a Node.js plan whose JavaScript tests were already there — and the
+  structure check only accepted a `.py` under `tests/`, so an Express project came out `FAILED`
+  on `unittest_loader__FailedTest_tests_test_HTTPServer`. Only a language with a known layout
+  gets tests added, in that language; the rest is left to `validate_plan` to report.
+- A language Mirag cannot run here (Go, Rust, Java…) is delivered with its tests in its own
+  language and reported `GENERATED` with an `execution` phase `skipped`, never `EXECUTED`.
+- `test_command` for a Node.js project is normalised from `npm test` (no `npm` here) to
+  `node --test tests/`, and reported as a plan step.
+- The project file allow-list no longer rejects the first `.go`, `.rs`, `.java`… file.
 
 ## [2.0.0] - 2026-09-18
 

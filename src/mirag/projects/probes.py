@@ -29,6 +29,7 @@ Windows.
 
 from __future__ import annotations
 
+import json
 import re
 import secrets
 from collections.abc import Mapping
@@ -187,6 +188,96 @@ if __name__ == "__main__":
         sys.exit(1)
     sys.exit(1 if (result.failures or result.errors) else 0)
 '''}
+
+
+_NODE_TESTS = r'''// Runs the project tests and emits one marker per test. Written by Mirag.
+import { run } from "node:test";
+import { readdirSync } from "node:fs";
+import { basename, extname, join, resolve } from "node:path";
+
+const START = __START__;
+const MINIMUM = __MINIMUM__;
+
+function walk(dir) {
+  let out = [];
+  let entries;
+  try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+  for (const entry of entries) {
+    if (entry.name === "node_modules" || entry.name === ".git") continue;
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) out = out.concat(walk(full));
+    else if (/\.(c|m)?js$/.test(entry.name)) out.push(resolve(full));
+  }
+  return out;
+}
+
+// The file is part of the id for the same reason the full dotted path is in the Python probe:
+// two files routinely share a test name, and a shared marker means one silently overwrites
+// the other's verdict.
+const seen = new Map();
+function marker(data) {
+  const file = data.file ? basename(data.file, extname(data.file)) : "";
+  const raw = `${file}_${data.name}`.replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+  const base = (raw || "unnamed").slice(-80);
+  const n = (seen.get(base) ?? 0) + 1;
+  seen.set(base, n);
+  return n === 1 ? base : `${base}_${n}`;
+}
+
+const files = walk(START);
+if (files.length === 0) {
+  console.log("TEST:test_discovery:FAIL");
+  console.log(`PROBE: no .js test file was found under ${START}/ — this is not a failing test, it is nothing to run.`);
+  process.exit(1);
+}
+
+let ran = 0;
+let failed = 0;
+const stream = run({ files });
+stream.on("test:pass", (data) => {
+  if (data.details?.type === "suite") return;
+  ran += 1;
+  console.log(`TEST:${marker(data)}:PASS`);
+});
+stream.on("test:fail", (data) => {
+  if (data.details?.type === "suite") return;
+  ran += 1;
+  failed += 1;
+  console.log(`TEST:${marker(data)}:FAIL`);
+  const error = data.details?.error;
+  console.log(`FAIL: ${data.name} (${data.file ?? "?"})`);
+  console.log(String(error?.cause?.stack ?? error?.stack ?? error?.message ?? error ?? ""));
+});
+
+try {
+  for await (const _event of stream) { /* drained: the listeners above do the reporting */ }
+} catch (error) {
+  console.log("TEST:test_discovery:FAIL");
+  console.log("PROBE: the tests could not be loaded at all — this is not a failing test.");
+  console.log(String(error?.stack ?? error));
+  process.exit(1);
+}
+
+if (ran < MINIMUM) {
+  // A test file that registers nothing leaves 0 tests and exit 0. That is NOT passing.
+  console.log("TEST:test_coverage:FAIL");
+  console.log(`PROBE: ${ran} tests ran and at least ${MINIMUM} were expected`);
+  process.exit(1);
+}
+process.exit(failed ? 1 : 0);
+'''
+
+
+def node_tests_probe(start_dir: str = "tests", minimum: int = 1) -> dict[str, str]:
+    """The Node.js twin of :func:`tests_probe`: `node:test` run programmatically, one marker per test.
+
+    The model is asked for plain `node:test` files with no dependencies, and this is what turns
+    their result into evidence — a test that prints its own `TEST:...:PASS` is a test that can
+    approve itself. Suites (`describe`) report as their own events and are skipped: only the
+    tests inside them are markers, otherwise a suite with one failing test would count twice.
+    """
+    source = _NODE_TESTS.replace("__START__", json.dumps(start_dir)).replace("__MINIMUM__", str(int(minimum)))
+    return {f"{PROBE_PREFIX}tests.mjs": source}
 
 
 def crud_probe(

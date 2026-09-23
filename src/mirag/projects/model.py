@@ -19,6 +19,7 @@ from typing import Any
 from mirag.core.errors import ForbiddenDestinationError, ForbiddenPathError, SealedProjectError
 from mirag.core.text import sha256_hex
 from mirag.paths import PACKAGE_ROOT, source_checkout_root
+from mirag.projects.languages import BUILD_EXTENSIONS, SOURCE_EXTENSIONS
 
 # Caps. They are not aesthetics: a model gone wild must not fill the disk or build a ZIP
 # nobody can open.
@@ -33,10 +34,15 @@ MAX_TOTAL_BYTES = 400 * 1024
 SEGMENT = re.compile(r"\A[A-Za-z0-9_][A-Za-z0-9._-]{0,63}\Z")
 ALLOWED_HIDDEN = frozenset({".gitignore", ".env.example", ".dockerignore", ".editorconfig"})
 FORBIDDEN_SEGMENTS = frozenset({"__pycache__", ".git", ".env", "node_modules", ".venv", "venv", ".DS_Store"})
-EXTENSIONS = frozenset({".py", ".js", ".ts", ".json", ".md", ".txt", ".sql", ".yml", ".yaml",
-                        ".toml", ".cfg", ".ini", ".html", ".css", ".example", ".gitignore", ".sh"})
-EXTENSIONLESS = frozenset({"Dockerfile", "Makefile", "LICENSE", "NOTICE", "Procfile",
-                           "README", "CHANGELOG", "AUTHORS", "VERSION", "CODEOWNERS"})
+EXTENSIONS = frozenset({".json", ".md", ".txt", ".sql", ".yml", ".yaml", ".toml", ".cfg", ".ini",
+                        ".html", ".css", ".example", ".gitignore", ".sh"}) | SOURCE_EXTENSIONS | BUILD_EXTENSIONS
+"""Data and config formats, plus every language `languages.LANGUAGES` knows.
+
+It was `.py` and `.js` written out by hand, so a Go, Rust or Java project had its first source
+file rejected as "extension not allowed" — the allow-list was the last place that assumed two
+languages. Still an allow-list: executables and archives are not in it."""
+EXTENSIONLESS = frozenset({"Dockerfile", "Makefile", "LICENSE", "NOTICE", "Procfile", "Gemfile",
+                           "Rakefile", "README", "CHANGELOG", "AUTHORS", "VERSION", "CODEOWNERS"})
 """Ordinary files of a delivered project that simply have no extension.
 
 The allow-list was written against the books demo, whose fourteen files all end in `.py` or

@@ -169,7 +169,7 @@
     },
     "problem": {
       "no_files": "the project has no files",
-      "no_tests": "there is no .py file under tests/, which is where the harness looks",
+      "no_tests": "there is no test file in the project's language (under tests/ for Python and Node.js, which is where the harness looks)",
       "no_code": "there is no code file",
       "missing_init": "{package}/ has no __init__.py"
     },
@@ -203,6 +203,9 @@
       "fails": "`{command}` fails: {header}",
       "ok": "`{command}` runs without errors"
     },
+    "tests": {
+      "no_harness": "not run: Mirag cannot run {language} tests on this machine. The tests are delivered in the project's own language, for whoever can run them"
+    },
     "crud": {
       "skipped": "the project does not expose a server factory (create_server): there is no API to exercise"
     },
@@ -235,6 +238,7 @@
   "generation": {
     "no_plan": "the model did not return a usable plan",
     "tests_added": "the plan had no tests: {count} files were added",
+    "test_command_replaced": "the test command '{old}' cannot run here: '{new}' is used instead",
     "specified": "{name} · {framework} · {count} files planned",
     "call_cap": "cap of {cap} calls reached: this group was not generated",
     "group_files": "{count} files",

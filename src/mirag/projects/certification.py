@@ -24,7 +24,7 @@ from mirag.execution.backend import CodeExecutionBackend
 from mirag.execution.syntax import SyntaxChecker
 from mirag.execution.verdict import ExecutionResult, ExecutionStatus
 from mirag.i18n.catalog import MessageCatalog
-from mirag.projects import probes
+from mirag.projects import languages, probes
 from mirag.projects.dependencies import DependencyAnalyzer, Finding, Severity
 from mirag.projects.model import Project
 
@@ -154,9 +154,16 @@ def validate_structure(project: Project, catalog: MessageCatalog) -> list[str]:
     # of PARTIAL. A project whose tests never ran was reported as one whose tests were silent.
     #
     # Two places disagreeing about where tests live is the bug. One place wins.
-    if not any(f.path.startswith("tests/") and f.path.endswith(".py") for f in files):
+    #
+    # That holds for the languages Mirag runs — Python and Node.js, where the harness looks in
+    # `tests/` and only there. For every other language the test is recognised by its own
+    # convention (`foo_test.go`, `src/test/`, `foo_spec.rb`): nothing here executes it, so
+    # there is no harness whose search directory has to agree. Which language it is comes from
+    # the blueprint, then from the files (see `languages.detect`).
+    paths = [f.path for f in files]
+    if not languages.has_tests(paths, languages.detect(project.spec, paths)):
         problems.append(catalog.t("cert.problem.no_tests"))
-    if not any(f.path.endswith((".py", ".js")) for f in files):
+    if not any(languages.is_source(path) for path in paths):
         problems.append(catalog.t("cert.problem.no_code"))
     # Python packages without __init__.py: it works from the root and fails elsewhere
     packages = {"/".join(f.path.split("/")[:-1]) for f in files if f.path.endswith(".py") and "/" in f.path}
@@ -374,6 +381,22 @@ class ProjectCertifier:
     def _python(self) -> str:
         return "python3"
 
+    def _tests_probe(self, language: languages.Language | None) -> tuple[dict[str, str], str] | None:
+        """``(probe files, command)`` for a language Mirag can run here, else ``None``.
+
+        `None` is an answer, not an error: for Go, Rust or Java the tests exist and are
+        delivered, and nothing here can execute them. It is also what a Node.js project gets on a
+        machine with no `node` — asking the runner anyway would come back "not executed" and be
+        reported as tests that ran and printed nothing, which is a different sentence.
+        """
+        if language is None:
+            return None
+        if language.harness == "python":
+            return probes.tests_probe("tests"), f"{self._python()} _probe_tests.py"
+        if language.harness == "node" and self._runner.interpreters.resolve("node"):
+            return probes.node_tests_probe("tests"), "node _probe_tests.mjs"
+        return None
+
     def certify(
         self,
         project: Project,
@@ -538,9 +561,22 @@ class ProjectCertifier:
         # ── 4. the project's tests, ALWAYS through the probe ─────────────────
         # With the bare project command, unittest prints no markers and the phase comes out
         # NO EVIDENCE - a silence the CRUD markers used to hide, giving a false VERIFIED.
+        language = languages.detect(project.spec, project.paths())
+        probe = self._tests_probe(language)
+        if probe is None:
+            # Named "execution", not "tests": a phase called "tests" is what makes the status
+            # EXECUTED — "the tests ran and printed no marker" — and nothing ran. Without it
+            # the verdict is GENERATED, which is exactly the truth: there are files, and their
+            # tests were written in the right language and are waiting for someone who can run
+            # them.
+            note(Phase("execution", PhaseStatus.SKIPPED,
+                       t("cert.tests.no_harness", language=language.name if language else "?")))
+            status, reason = StatusDeriver(t).derive(tuple(phases), {}, tuple(findings))
+            return Certificate(status, reason, tuple(phases), tuple(findings), {}, repairs=tuple(repairs),
+                               interpreter=interpreter, project=project)
+        harness, tests_command = probe
         clock.restart()
-        harness = probes.tests_probe("tests")
-        tests = self._runner.run({**project.as_text_mapping(), **harness}, f"{self._python()} _probe_tests.py")
+        tests = self._runner.run({**project.as_text_mapping(), **harness}, tests_command)
         note(Phase("tests", _FROM_EXECUTION.get(tests.status, PhaseStatus.LIMITED), tests.describe(t),
                    clock.ms, tests.text))
         markers = dict(tests.markers)
@@ -566,8 +602,7 @@ class ProjectCertifier:
                 if not changed:
                     break
                 project = repaired
-                tests = self._runner.run({**project.as_text_mapping(), **harness},
-                                         f"{self._python()} _probe_tests.py")
+                tests = self._runner.run({**project.as_text_mapping(), **harness}, tests_command)
                 note(Phase("tests_after_repair", _FROM_EXECUTION.get(tests.status, PhaseStatus.LIMITED),
                            tests.describe(t), 0.0, tests.text))
                 markers = dict(tests.markers)

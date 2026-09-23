@@ -38,6 +38,7 @@ from mirag.execution.interpreters import InterpreterRegistry
 from mirag.i18n.catalog import MessageCatalog
 from mirag.llm.gateway import LLMGateway
 from mirag.llm.messages import first_tool_arguments, function_tool
+from mirag.projects import languages
 from mirag.projects.certification import Repairer
 from mirag.projects.dependencies import DependencyAnalyzer, Finding
 from mirag.projects.model import FILE_KINDS, Project
@@ -126,7 +127,7 @@ def groups_of(plan: Sequence[Mapping[str, Any]]) -> list[str]:
     return [g for g in GROUPS if g in present] + extra
 
 
-LINE_BASED = (".py", ".js", ".ts", ".sql", ".yml", ".yaml", ".toml", ".cfg", ".ini", ".md", ".sh")
+LINE_BASED = (*sorted(languages.SOURCE_EXTENSIONS), ".sql", ".yml", ".yaml", ".toml", ".cfg", ".ini", ".md", ".sh")
 FLAT_AFTER = 200
 """Characters past which a line-based file with no line break is not a file anyone can use."""
 
@@ -214,13 +215,13 @@ def _involved(project: Project, errors: Sequence[Finding], output: str,
     # Nothing to go on — which happens when the probe died before running anything. The
     # entrypoint is the one file always worth looking at.
     entry = [f.path for f in project.files("entrypoint")]
-    return (entry or [f.path for f in project.files() if f.path.endswith(".py")])[:MAX_INVOLVED]
+    return (entry or [f.path for f in project.files() if languages.is_source(f.path)])[:MAX_INVOLVED]
 
 
 def _group_for(entry: Mapping[str, Any]) -> str:
     """The group of a plan entry that came without one, inferred from what it is."""
     path, kind = str(entry.get("path") or ""), str(entry.get("kind") or "")
-    if kind == "test" or path.startswith("tests/"):
+    if kind == "test" or path.startswith("tests/") or languages.looks_like_test(path):
         return "tests"
     if kind == "doc" or path.endswith((".md", ".txt")) or path in ("Dockerfile", "LICENSE", "Makefile"):
         return "docs"
@@ -230,6 +231,10 @@ def _group_for(entry: Mapping[str, Any]) -> str:
 
 HTTP_CONTRACT = """\
 MANDATORY PROJECT RULES (set by Mirag, not negotiable):
+- Some rules below name Python constructs (`create_server`, `ThreadingHTTPServer`, `sqlite3`,
+  `__init__.py`). In a Python project apply them as written. In any other language apply their
+  equivalent: a factory that RETURNS an unstarted server, one shared database connection, and
+  nothing running at import time.
 - The entrypoint exposes `create_server(port=0, db=":memory:")` which RETURNS an already built
   ThreadingHTTPServer WITHOUT starting it. Whoever calls it starts it.
 - NOTHING runs when a module is imported. Start-up goes under `if __name__ == "__main__":`.
@@ -241,14 +246,23 @@ MANDATORY PROJECT RULES (set by Mirag, not negotiable):
   `sqlite3.connect(db, check_same_thread=False)` and serialise the WRITES with a
   `threading.Lock` — that is what `check_same_thread=False` requires of you, and it is the
   companion of the shared connection, not a substitute for it.
-- Every package has its `__init__.py`.
-- Tests live in `tests/` and use `unittest`. MANDATORY: the plan must include at least one
-  file in `tests/`. Without tests there is nothing to verify and the project is delivered FAILED.
-- EVERY TEST STARTS FROM A CLEAN DATABASE, built in `setUp` and not in `setUpClass`. Tests
-  must pass in any order and on their own: one that only passes after another has inserted a
-  row is a test that will fail here.
-- `test_command` must start with one of the interpreters that EXIST on this machine:
-  {interpreters}.
+- Every Python package has its `__init__.py`.
+- TESTS ARE WRITTEN IN THE SAME LANGUAGE AS THE PROJECT, with that language's own standard test
+  framework, and never in another one unless the request explicitly asks for it. A Python
+  project is tested with `unittest`, a Node.js one in JavaScript with the built-in `node:test`
+  and `node:assert/strict` (no dependencies), a Go one with `testing`, and so on for any other
+  language. A test file in a different language than the code it tests can never pass.
+  MANDATORY: the plan must include at least one test file, in `tests/` or wherever that
+  language's convention puts it. Without tests there is nothing to verify and the project is
+  delivered FAILED.
+- EVERY TEST STARTS FROM A CLEAN DATABASE, built in the per-test setup (`setUp`, `beforeEach`)
+  and not in a class-wide or file-wide one. Tests must pass in any order and on their own: one
+  that only passes after another has inserted a row is a test that will fail here.
+- `test_command` runs the tests with the language's own runner. When the language has an
+  interpreter on this machine it must start with one of them: {interpreters} — for example
+  `python3 -m unittest discover -s tests -t .` or `node --test tests/`. Never `npm`, `npx` or
+  `yarn`: they are not here. A language none of those covers still gets its tests and its usual
+  command (`go test ./...`, `cargo test`): it is written down for whoever runs it, not run here.
 - PREFER FEWER, LARGER MODULES — around {max_files} files, never one file per class. Every
   file is a separate thing that can arrive wrong or not arrive at all, and a project is
   delivered only when ALL of its planned files exist.
@@ -264,7 +278,8 @@ SPECIFY_TOOL = function_tool(
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "lower case and hyphens, e.g. books-api"},
-            "language": {"type": "string"},
+            "language": {"type": "string",
+                         "description": "the programming language, e.g. python, javascript, go, java"},
             "framework": {"type": "string", "description": "'stdlib' if none is needed"},
             "database": {"type": "string"},
             "architecture": {"type": "string"},
@@ -273,7 +288,9 @@ SPECIFY_TOOL = function_tool(
             "fields": {"type": "array", "items": {"type": "string"}, "description": "the entity fields"},
             "dependencies": {"type": "array", "items": {"type": "string"},
                              "description": "only the ones really needed. Empty for stdlib."},
-            "test_command": {"type": "string", "description": "starts with python3 or node"},
+            "test_command": {"type": "string",
+                             "description": "the language's own test runner: python3 -m unittest ... "
+                                            "or node --test tests/; never npm, npx or yarn"},
             "assumptions": {"type": "array", "items": {"type": "string"},
                             "description": "what you decided without being told, and why"},
             "files": {
@@ -416,16 +433,23 @@ class ProjectGenerator:
             entrypoint = next((f["path"] for f in plan if f.get("path", "").endswith("main.py")), "")
         added = []
 
-        if not any(p.startswith("tests/") and p.endswith(".py") for p in paths):
-            for path, purpose in (("tests/__init__.py", "tests package"),
-                                  (f"tests/test_{entity}.py",
-                                   f"full CRUD of {entity} over real HTTP, with unittest")):
+        # The tests that are added are the PROJECT'S language's, and only where the layout is
+        # known. This used to add `unittest` files whenever no `tests/*.py` existed — including
+        # to a Node.js plan whose JavaScript tests were sitting right there — and a Python test
+        # for a server it cannot import is a failing test nobody wrote on purpose. For a
+        # language with no known layout nothing is added: `validate_plan` says so instead.
+        language = languages.detect(spec, paths)
+        if language and not languages.has_tests(paths, language):
+            for template in language.test_files:
+                path = template.format(entity=languages.slug(entity))
                 if path in paths:
                     continue
-                plan = [*plan, {"path": path, "kind": "test", "purpose": purpose, "exports": [],
-                                "group": "tests",
-                                "depends_on": [entrypoint] if entrypoint and path.endswith(f"test_{entity}.py")
-                                else []}]
+                is_package_marker = path.endswith("__init__.py")
+                plan = [*plan, {"path": path, "kind": "test",
+                                "purpose": "tests package" if is_package_marker
+                                else f"full CRUD of {entity} over real HTTP, with {language.framework}",
+                                "exports": [], "group": "tests",
+                                "depends_on": [entrypoint] if entrypoint and not is_package_marker else []}]
                 added.append(path)
 
         if not any(p.upper().startswith("README") for p in paths):
@@ -442,19 +466,44 @@ class ProjectGenerator:
         """What a plan must bring for the rest to mean anything."""
         problems = []
         paths = [f.get("path", "") for f in plan]
-        if not any(p.startswith("tests/") for p in paths):
+        language = languages.detect(spec, paths)
+        if not languages.has_tests(paths, language):
             problems.append(catalog.t("generation.problem.no_tests"))
         if not any(p.upper().startswith("README") for p in paths):
             problems.append(catalog.t("generation.problem.no_readme"))
         if not any(f.get("kind") == "entrypoint" for f in plan):
             problems.append(catalog.t("generation.problem.no_entrypoint"))
 
+        # Only for a language Mirag runs. For the others the command is documentation — `go
+        # test ./...` is right and simply cannot execute here — and flagging it would put a
+        # "problem" on every plan that did exactly what the contract asked.
         command = (spec or {}).get("test_command") or ""
         first = command.split()[0] if command.split() else ""
-        if first and self._interpreters.resolve(first) is None:
+        if language and language.harness and first and self._interpreters.resolve(first) is None:
             problems.append(catalog.t("generation.problem.bad_interpreter", first=first,
                                       available=self._interpreters.describe()))
         return problems
+
+    def normalize_test_command(self, spec: dict[str, Any], plan: Sequence[Mapping[str, Any]]) -> tuple[str, str] | None:
+        """``(old, new)`` when the model's test command could not run here and the language's
+        own could; ``None`` when nothing was changed.
+
+        The commonest miss is `npm test` for a Node.js project: `npm` is not an interpreter
+        here, so the command failed as "not executed" while `node --test tests/` — what it
+        stands for — runs. Replacing it is a repair of the model's guess, not a decision about
+        the project, and it is reported as a step so nobody wonders where the command came from.
+        """
+        language = languages.detect(spec, [str(f.get("path", "")) for f in plan])
+        command = str(spec.get("test_command") or "")
+        first = command.split()[0] if command.split() else ""
+        if not (language and language.harness and language.test_command and first):
+            return None
+        if self._interpreters.resolve(first) is not None:
+            return None
+        if self._interpreters.resolve(language.test_command.split()[0]) is None:
+            return None
+        spec["test_command"] = language.test_command
+        return command, language.test_command
 
     @staticmethod
     def interface_contract(plan: Sequence[Mapping[str, Any]], project: Project, group: str) -> str:
@@ -549,6 +598,10 @@ class ProjectGenerator:
         plan, added = self.complete_plan(plan, spec)
         if added:
             note(GenerationStep("plan", "fallback", t("generation.tests_added", count=len(added)), {"added": added}))
+        if replaced := self.normalize_test_command(spec, plan):
+            note(GenerationStep("plan", "fallback",
+                                t("generation.test_command_replaced", old=replaced[0], new=replaced[1]),
+                                {"old": replaced[0], "new": replaced[1]}))
         if problems := self.validate_plan(plan, spec, catalog):
             # Said HERE, not after generating eleven files and failing on structure.
             note(GenerationStep("plan", "error", "; ".join(problems), {"problems": problems}))
