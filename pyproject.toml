@@ -15,7 +15,7 @@ dependencies = []
 
 [project.optional-dependencies]
 blockchain = ["stellar-sdk>=16.1.0"]
-dev = ["ruff>=0.6", "mypy>=1.10"]
+dev = ["ruff>=0.6", "mypy>=1.10", "pytest>=8.0"]
 
 [project.scripts]
 mirag = "mirag.cli:main"
@@ -43,10 +43,18 @@ mirag_pm = [
     "examples/*/*.md",
 ]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+# `tests/` is not a package and the fixtures are imported by name (`from conftest import …`),
+# which is what `rootdir`-relative insertion gives us. The scripts under `scripts/` remain
+# what they have always been: checks run by hand, not collected here.
+pythonpath = ["tests"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["src"]
+src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "N", "RUF"]

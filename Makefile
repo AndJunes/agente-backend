@@ -1,6 +1,6 @@
 PYTHON ?= python
 
-.PHONY: install run run-manager lint format typecheck demo clean runner-image
+.PHONY: install run run-manager lint format test typecheck check demo clean clean-deps runner-image
 
 install:
 	$(PYTHON) -m pip install -e ".[dev]"
@@ -27,8 +27,15 @@ lint:
 format:
 	$(PYTHON) -m ruff check --fix src benchmarks scripts
 
+test:
+	$(PYTHON) -m pytest
+
 typecheck:
 	$(PYTHON) -m mypy
+
+# Everything that has to be green before a change ships. `install` first, so a fresh
+# checkout is one command away from an answer rather than three failures away from one.
+check: install lint typecheck test
 
 demo:
 	$(PYTHON) -m mirag demo all
@@ -36,3 +43,10 @@ demo:
 clean:
 	$(PYTHON) -c "import shutil, pathlib; [shutil.rmtree(p, ignore_errors=True) for p in pathlib.Path('.').rglob('__pycache__')]"
 	$(PYTHON) -c "import shutil; [shutil.rmtree(p, ignore_errors=True) for p in ('.pytest_cache', '.ruff_cache', '.mypy_cache', 'build', 'dist')]"
+
+# The Docker volumes generated projects' dependencies were installed into. They are cached on
+# purpose — a second project asking for the same FastAPI installs nothing — so they are NOT
+# removed by `clean`, and nothing removes them automatically. The label is written by
+# `DockerInstaller.create_argv`; a volume still in use by a container is left alone.
+clean-deps:
+	docker volume ls --filter label=mirag.deps=1 -q | xargs -r docker volume rm

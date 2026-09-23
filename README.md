@@ -58,6 +58,48 @@ whole for you to judge.
 
 **If the corpus does not cover what you ask, it says so before answering.**
 
+**It installs what the project declares — inside the sandbox — and repairs until the tests are
+green.** A generated project that imports `fastapi` used to top out at `VALIDATED` wherever
+`fastapi` was not installed: the code compiled, its imports resolved, and its tests were never
+run. That ceiling is the honest verdict for a machine that cannot install anything, and it was
+the *first* answer on every machine. Certification now installs the declared dependencies,
+asks the analyzer again, and only then decides — and when the install fails the run lands
+exactly where it used to, with the log attached saying why.
+
+The packages go into a **Docker volume**, mounted read-only into the same disposable container
+that runs the project's tests. Not into the interpreter running Mirag, not into this checkout,
+not anywhere on the host: a generated project's dependencies are third-party code chosen by a
+model, and the one place they belong is the sandbox that was already going to execute that
+project. Which means installing **requires `MIRAG_EXECUTION_BACKEND=docker`** — with probes
+running as host subprocesses there is no sandbox to install into, so nothing is installed and
+the project keeps its ceiling, saying so.
+
+The repairs go through one loop (`projects/convergence.py`) rather than three hand-written
+copies of it. Each motive — syntax, broken imports, failing tests — gets its own attempts, and
+the loop checks the run's clock before every one, which none of the three copies did.
+
+| | |
+|---|---|
+| `MIRAG_INSTALL_DEPENDENCIES` | install `requirements.txt` before running the tests (default on, and gated behind both `MIRAG_EXECUTION` and the Docker backend) |
+| `MIRAG_INSTALL_TIMEOUT_S` | wall clock for one install (default 300) |
+| `MIRAG_MAX_REPAIRS` | repair attempts **per motive** (default 3; `0` delivers unrepaired) |
+
+Only `requirements.txt` is read, and only lines that are a package name with an optional
+version. `-r other.txt`, `--index-url …`, `-e .` and `git+ssh://…` are all ordinary lines of a
+requirements file, every one of them is refused by name in the trace, and the accepted names
+are passed to pip as arguments — the file itself is never handed over.
+
+Three containers, because one would not be safe. The **install** container is the only one in
+this code base with a network, and it holds no project code, so there is nothing in it a
+generated test could use to reach out. A very short **seal** container makes the tree readable
+by the unprivileged uid the tests run as and writes the marker that makes the volume
+reusable. The **test** container keeps `--network none` and gets the volume read-only. Both of
+those are checked against real Docker by `scripts/check_installation.py`.
+
+Volumes are named after the requirements, so a second project asking for the same versions
+installs nothing, and they are labelled `mirag.deps=1`. They are cached on purpose and nothing
+removes them automatically: `make clean-deps`.
+
 ## Repository layout
 
 ```
@@ -145,11 +187,21 @@ check when something fails. A few things that go wrong here:
 
 ## Checks
 
-There is no test suite in this checkout (`tests/` was removed). What CI runs is:
+`make check` runs the install, the linter, the type checker and the tests in that order.
+Individually:
 
 ```bash
-python -m ruff check src benchmarks scripts     # make lint
+python -m pip install -e ".[dev]"               # make install
+python -m ruff check src tests benchmarks scripts   # make lint
 python -m mypy                                  # make typecheck
+python -m pytest                                # make test — 64 tests, offline, no network
+```
+
+The suite covers the convergence loop, the dependency installer and the gate that joins
+them to certification. Everything below runs by hand and is what CI also runs; the last one
+needs a network, which is why it is not in the suite:
+
+```bash
 python -m mirag demo all                        # make demo; add --locale es for the Spanish run
 python -m mirag_pm.cli doctor                   # every PM locale loads, and its four indices
 python -m mirag_pm.cli coverage --by-domain     # every PM document is reachable by a skill
@@ -157,7 +209,14 @@ python scripts/check_delivery.py                # a project that does not match 
 python scripts/check_deadlines.py               # a hanging call ends, and a closed tab stops the work
 python scripts/check_repair.py                  # a failing test tells the repairer where to look
 python scripts/check_parallel.py                # batches run at once without losing files or miscounting calls
+python scripts/check_installation.py            # real Docker: the ceiling lifts and nothing escapes the sandbox
 ```
+
+`check_installation.py` needs Docker and the runner image and skips cleanly without them. It
+is the half the unit tests cannot cover: it pulls a real package into a real volume, mounts it
+into the real sandbox, and then checks that the test container still has no network, still
+cannot write into the volume, and that nothing landed in this checkout or in the interpreter
+running the script.
 
 ## The spending cap
 

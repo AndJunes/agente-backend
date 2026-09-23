@@ -40,8 +40,14 @@ from mirag.pipeline.project_stage import ProjectDeliveryStage
 from mirag.pipeline.prompts import SYSTEM_PROMPT
 from mirag.projects.artifacts import ArtifactRegistry
 from mirag.projects.certification import ProjectCertifier
-from mirag.projects.dependencies import DependencyAnalyzer
+from mirag.projects.dependencies import DependencyAnalyzer, ProbeArgv
 from mirag.projects.generator import ProjectGenerator
+from mirag.projects.installation import (
+    NO_SANDBOX_REASON,
+    DependencyInstaller,
+    DockerInstaller,
+    NullInstaller,
+)
 from mirag.projects.packaging import Packager
 from mirag.retrieval.engine import CorpusLoader, RetrievalEngine, RetrievalEngineFactory
 from mirag.retrieval.symbols import SymbolIndexCache, SymbolIndexer
@@ -182,7 +188,7 @@ class Container:
                     "wallet": None, "last_payment": None, "links": {}}
 
 
-def _docker_probe_argv(settings: Settings) -> Callable[[str], list[str]]:
+def _docker_probe_argv(settings: Settings) -> ProbeArgv:
     """How `DependencyAnalyzer` checks whether an external import is importable, when the
     docker backend is selected: inside the SAME image the tests actually run in, not the host's
     Python. Without this, a curated library the runner image genuinely has would still be
@@ -193,13 +199,18 @@ def _docker_probe_argv(settings: Settings) -> Callable[[str], list[str]]:
     `importlib.util.find_spec` check, not a test run, so tighter ceilings are enough and starting
     it faster matters more than for a probe that already has real work to do.
     """
-    def build(script: str) -> list[str]:
+    def build(script: str, dependencies: str = "") -> list[str]:
+        # The volume of just-installed packages, read-only, when there is one. Without it the
+        # probe would keep answering "not installed" about packages that now are, and the
+        # install would have lifted nothing.
+        packages = (["-v", f"{dependencies}:/deps:ro", "-e", "PYTHONPATH=/deps"]
+                    if dependencies else [])
         return [
             "docker", "run", "--rm", "--network", "none",
             "--security-opt", "no-new-privileges", "--cap-drop", "ALL", "--read-only",
             "--tmpfs", "/tmp:rw,noexec,nosuid,size=32m",
             "--pids-limit", "64", "--memory", "256m",
-            "--user", "10001:10001", "-e", "HOME=/tmp",
+            "--user", "10001:10001", "-e", "HOME=/tmp", *packages,
             settings.docker_image, "python3", "-c", script,
         ]
     return build
@@ -221,6 +232,16 @@ def build_container(settings: Settings | None = None, model_builder: ModelBuilde
     gate = FeatureGate(settings.env, gains or GainsRepository(FEATURE_GAINS_FILE))
     interpreters = InterpreterRegistry()
     runner: CodeExecutionBackend
+    installer: DependencyInstaller
+    # The installer and the runner are chosen together and never separately, and only one of
+    # the two backends has an installer at all.
+    #
+    # Installing a generated project's dependencies means fetching third-party code a model
+    # chose. There is exactly one place that belongs — the disposable container that was
+    # already going to run that project's tests — so the packages go into a Docker volume
+    # mounted into it, and nothing lands on the host or in this checkout. A deployment
+    # running probes as host subprocesses has no such place, so it gets no installer and
+    # says why; the project keeps the honest ceiling it had.
     if settings.execution_backend == "docker":
         runner = DockerCodeRunner(
             image=settings.docker_image, timeout_s=settings.code_timeout_s,
@@ -228,9 +249,14 @@ def build_container(settings: Settings | None = None, model_builder: ModelBuilde
             memory=settings.docker_memory, cpus=settings.docker_cpus,
             pids_limit=settings.docker_pids_limit)
         analyzer = DependencyAnalyzer(interpreters, probe_argv=_docker_probe_argv(settings))
+        installer = DockerInstaller(
+            image=settings.docker_image, timeout_s=settings.install_timeout_s,
+            enabled=settings.install_dependencies,
+            docker_timeout_s=settings.docker_cli_timeout_s)
     else:
         runner = CodeRunner(interpreters, timeout_s=settings.code_timeout_s, enabled=settings.execution)
         analyzer = DependencyAnalyzer(interpreters)
+        installer = NullInstaller(NO_SANDBOX_REASON)
     syntax = SyntaxChecker(runner)
     vectors = VectorStoreFactory(settings.vector_backend, settings.openrouter_api_key, settings.offline,
                                  settings.embeddings_dir)
@@ -254,7 +280,8 @@ def build_container(settings: Settings | None = None, model_builder: ModelBuilde
         traces=TraceWriter(settings.traces_dir / "pipeline.jsonl"),
         gateways=gateways,
         generator=ProjectGenerator(interpreters),
-        certifier=ProjectCertifier(runner, syntax, analyzer),
+        certifier=ProjectCertifier(runner, syntax, analyzer, installer=installer,
+                                   max_repairs=settings.max_repairs),
         packager=Packager(),
         console=console,
         tools_builder=tools_builder,

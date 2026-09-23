@@ -27,7 +27,19 @@ class CodeExecutionBackend(Protocol):
     interpreters: InterpreterRegistry
     enabled: bool
 
-    def run(self, files: Mapping[str, str], command: str) -> ExecutionResult: ...
+    def run(self, files: Mapping[str, str], command: str, *,
+            dependencies: str = "") -> ExecutionResult: ...
+    """``dependencies`` names a Docker volume of packages the code may import for THIS call.
+
+    A volume name and not a path, deliberately: a generated project's dependencies are
+    third-party code chosen by a model, they are installed inside the sandbox, and there is
+    no host directory for anybody to be handed. A backend that has no sandbox (the host one)
+    can do nothing with the name and ignores it.
+
+    Per call and not per backend: one process certifies several projects at once, each with
+    its own dependencies, and a backend carrying the name as state would hand one project's
+    packages to another's tests. It is read-only input, exactly like the files are — a
+    container that gets one still has no network."""
 
 
 def resolve_command(

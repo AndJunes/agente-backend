@@ -40,5 +40,7 @@ class SyntaxChecker:
                     return ExecutionResult.syntax_error(f"{path}: {result.header}")
         return None
 
-    def check_then_run(self, files: Mapping[str, str], command: str) -> ExecutionResult:
-        return self.check(files) or self._runner.run(files, command)
+    def check_then_run(self, files: Mapping[str, str], command: str,
+                       dependencies: str = "") -> ExecutionResult:
+        # `check` needs no packages: compiling resolves no import, and `node --check` parses.
+        return self.check(files) or self._runner.run(files, command, dependencies=dependencies)

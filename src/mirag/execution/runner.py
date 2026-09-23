@@ -47,6 +47,12 @@ def child_environment() -> dict[str, str]:
     environment. Only what an interpreter needs to start and find its modules is kept.
 
     UTF-8 everywhere: on Windows a child Python otherwise prints in the ANSI code page.
+
+    ``PYTHONPATH`` is deliberately NOT in the kept list and is never added: the host's own
+    must not reach the child, and this backend installs nothing for it to point at. A
+    project's declared dependencies are installed inside the Docker sandbox and only there
+    (see ``projects/installation.py``); on the host, a project that needs one keeps the
+    honest ceiling instead.
     """
     env = {name: os.environ[name] for name in KEPT_FROM_ENVIRONMENT if name in os.environ}
     env.update({"PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1", "PYTHONDONTWRITEBYTECODE": "1"})
@@ -62,7 +68,12 @@ class CodeRunner:
         self.enabled = enabled
         """``False``: nothing runs and every result is NOT EXECUTED (see ``Settings.execution``)."""
 
-    def run(self, files: Mapping[str, str], command: str) -> ExecutionResult:
+    def run(self, files: Mapping[str, str], command: str, *,
+            dependencies: str = "") -> ExecutionResult:
+        # Accepted to satisfy `CodeExecutionBackend` and ignored on purpose. It names a Docker
+        # volume, which means nothing to a host subprocess, and this backend is never wired to
+        # an installer — `container.py` gives it a `NullInstaller` that says why.
+        del dependencies
         if not self.enabled:  # before touching the disk at all
             return ExecutionResult.not_executed(DISABLED_REASON)
         if not files:

@@ -141,6 +141,24 @@ class Settings:
     """How long one console command may run before it is stopped. A server left running is the
     normal case, so this is minutes, not the 30 seconds a test gets."""
 
+    install_dependencies: bool = True
+    """Install what a generated project declares, instead of reporting that it cannot run here.
+
+    ON by default, and that is not the exception to the rest of these defaults it looks like:
+    it can only ever happen inside `execution`, which is OFF. A deployment that has not asked
+    for code to run never reaches this; one that HAS asked is a deployment that wants the
+    tests to actually mean something, and `fastapi is not installed on this machine` is not an
+    answer that deployment wanted. Only `requirements.txt`, only pinned package names, and
+    only into a directory of their own — see `projects/installation.py`."""
+
+    install_timeout_s: int = 300
+    """Wall clock for ONE install. The run's own deadline is the real bound; this stops a
+    single wheel that will not build from eating all of it."""
+
+    max_repairs: int = 3
+    """Repair attempts PER MOTIVE (syntax, imports, failing tests), spent by the convergence
+    loop. `0` delivers whatever the generator produced, unrepaired."""
+
     execution_backend: str = "subprocess"
     """Where a probe actually runs. ``"subprocess"``: the host, allow-listed and stripped down
     (``execution/runner.py``) - today's behaviour, unchanged for anyone who has not opted in.
@@ -263,6 +281,9 @@ class Settings:
             execution=_flag(env, "MIRAG_EXECUTION", False),
             console=_flag(env, "MIRAG_CONSOLE", False),
             console_timeout_s=_int(env, "MIRAG_CONSOLE_TIMEOUT_S", 600),
+            install_dependencies=_flag(env, "MIRAG_INSTALL_DEPENDENCIES", True),
+            install_timeout_s=_int(env, "MIRAG_INSTALL_TIMEOUT_S", 300),
+            max_repairs=_int(env, "MIRAG_MAX_REPAIRS", 3),
             execution_backend=(env.get("MIRAG_EXECUTION_BACKEND") or "subprocess").strip().lower(),
             docker_image=(env.get("MIRAG_DOCKER_IMAGE") or "").strip() or "mirag-runner:latest",
             docker_memory=(env.get("MIRAG_DOCKER_MEMORY") or "").strip() or "512m",

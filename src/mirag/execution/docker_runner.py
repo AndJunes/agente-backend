@@ -94,7 +94,8 @@ class DockerCodeRunner:
             return False
         return completed.returncode == 0
 
-    def run(self, files: Mapping[str, str], command: str) -> ExecutionResult:
+    def run(self, files: Mapping[str, str], command: str, *,
+            dependencies: str = "") -> ExecutionResult:
         if not self.enabled:  # before touching the disk at all
             return ExecutionResult.not_executed(DISABLED_REASON)
         if not files:
@@ -117,6 +118,17 @@ class DockerCodeRunner:
             _make_world_writable(root)
 
             name = f"mirag-run-{uuid.uuid4().hex}"
+            # The volume the project's declared dependencies were installed into, mounted
+            # READ-ONLY, with the network still off. They were downloaded by a DIFFERENT
+            # container (`DockerInstaller`) that had a network and no project code in it;
+            # this one only gets the resulting files and cannot change them. A test that
+            # could reach the network could pass by calling one, which is the whole reason
+            # installing is a separate container instead of something this one does.
+            #
+            # A volume NAME, never a host path: nothing about a generated project's
+            # dependencies exists outside Docker.
+            packages = (["-v", f"{dependencies}:/deps:ro", "-e", "PYTHONPATH=/deps"]
+                        if dependencies else [])
             argv = [
                 "docker", "run", "--rm", "--init", "--name", name,
                 "--network", "none",
@@ -129,6 +141,7 @@ class DockerCodeRunner:
                 "--cpus", self._cpus,
                 "--user", "10001:10001",
                 "-e", "HOME=/tmp",
+                *packages,
                 "-v", f"{root}:/workspace",
                 "-w", "/workspace",
                 self.image, executable, *parts[1:],
