@@ -23,7 +23,9 @@ from typing import Any
 from mirag.container import Container
 from mirag.core.errors import OfflineModeError
 from mirag.llm.messages import first_tool_arguments, function_tool
+from mirag.llm.models import ANY_TOOL
 
+from mirag_pm import offline
 from mirag_pm.audit import CitationAuditor
 
 Operation = Callable[[Mapping[str, Any], str], dict[str, Any]]
@@ -110,18 +112,34 @@ def plan_tool() -> dict[str, Any]:
     )
 
 
-def questionnaire_tool() -> dict[str, Any]:
+def questionnaire_tool(with_summary: bool = False) -> dict[str, Any]:
+    """Ask for what cannot be inferred.
+
+    ``with_summary`` folds the restatement of the idea INTO the tool call, and that is not a
+    convenience. Asked for prose *and* a tool call in one turn, models reliably do one or the
+    other: observed live, one run wrote the restatement and never called the tool, so the
+    questionnaire silently disappeared and the flow went straight to planning without asking
+    anything. Everything inside one call removes the choice — which is exactly why
+    ``deliver_plan`` is shaped that way.
+    """
+    properties: dict[str, Any] = {
+        "reason": {"type": "string", "description": "why these questions and not others"},
+        "questions": {"type": "array", "items": _QUESTION},
+    }
+    required = ["reason", "questions"]
+    if with_summary:
+        properties = {
+            "summary": {"type": "string",
+                        "description": "what you understood, plainly, proposing no solution"},
+            **properties,
+        }
+        required = ["summary", *required]
     return function_tool(
         "ask_questions",
-        "Ask for the decisions you cannot infer. Prefer asking to assuming. Call it ONCE.",
-        {
-            "type": "object",
-            "properties": {
-                "reason": {"type": "string", "description": "why these and not others"},
-                "questions": {"type": "array", "items": _QUESTION},
-            },
-            "required": ["reason", "questions"],
-        },
+        "Restate what you understood and ask for the decisions you cannot infer. Call it ONCE, "
+        "with everything inside." if with_summary
+        else "Ask for the decisions you cannot infer. Prefer asking to assuming. Call it ONCE.",
+        {"type": "object", "properties": properties, "required": required},
     )
 
 
@@ -148,17 +166,21 @@ class PmWorkflow:
             "inferred from what they said — the ones that would change the shape of the work. "
             "Four at most. Ask; do not assume.",
             f"{context}\n\n=== THE IDEA ===\n{idea}",
-            [questionnaire_tool()],
+            [questionnaire_tool(with_summary=True)],
+            operation="analyze",
         )
-        summary = message.get("content") or ""
+        arguments = first_tool_arguments(message) or {}
+        # The tool's summary when there is one, the prose otherwise. A model that answered in
+        # prose still said something useful; it just did not ask anything.
+        summary = str(arguments.get("summary") or "") or (message.get("content") or "")
         if findings := self._audit(summary):
             summary = f"{summary}\n\n" + "\n".join(f"⚠️ {f}" for f in findings)
+
         result: dict[str, Any] = {"summary": summary}
-        if arguments := first_tool_arguments(message):
-            result["questionnaire"] = {
-                "reason": str(arguments.get("reason") or ""),
-                "questions": _questions(arguments.get("questions")),
-            }
+        # Only when there is something to ask. An empty questionnaire is not a questionnaire:
+        # it crashed the screen, which opened the popup and read question zero of none.
+        if questions := _questions(arguments.get("questions")):
+            result["questionnaire"] = {"reason": str(arguments.get("reason") or ""), "questions": questions}
         return result
 
     def plan(self, payload: Mapping[str, Any], locale: str) -> dict[str, Any]:
@@ -168,16 +190,31 @@ class PmWorkflow:
         answered = "\n".join(
             f"- {a.get('questionId')}: {a.get('value')}" for a in answers if isinstance(a, Mapping)
         ) or "(none: the user chose to go on without answering)"
+        # The caller says which round this is, and the LAST one is enforced by not offering the
+        # tool at all. Asking the model to stop asking is a request; removing `ask_questions`
+        # from the turn is a fact. Observed live: three rounds in, the agent was asking what it
+        # should produce — a question about its own task, which the caller had already settled.
+        round_number = _int(payload.get("round"), 0)
+        last_round = round_number >= _int(payload.get("maxRounds"), 2)
+        tools = [plan_tool()] if last_round else [plan_tool(), questionnaire_tool()]
+
         context = self._context(idea, locale, "write-requirements")
-        message = self._ask(
-            locale,
-            "Produce the plan by calling deliver_plan. If the answers have opened a decision you "
-            "still cannot make, call ask_questions instead — a second round is a normal outcome, "
-            "not a failure. " + SCHEMA_NOTE,
-            f"{context}\n\n=== THE IDEA ===\n{idea}\n\n=== WHAT THEY ANSWERED ===\n{answered}",
-            [plan_tool(), questionnaire_tool()],
+        instruction = "Produce the plan by calling deliver_plan. " + (
+            "This is the last round: whatever is still unresolved goes in openQuestions, "
+            "which is what that field is for. Do not ask again — say what you do not know "
+            "and plan around it."
+            if last_round else
+            "If the answers have opened a decision you still cannot make, call ask_questions "
+            "instead — a second round is a normal outcome, not a failure. Ask about the "
+            "PRODUCT, never about what you should be producing: that is already decided."
+        ) + " " + SCHEMA_NOTE
+        content = f"{context}\n\n=== THE IDEA ===\n{idea}\n\n=== WHAT THEY ANSWERED ===\n{answered}"
+        return self._attempt(
+            lambda insist: self._plan_or_questions(
+                self._ask(locale, instruction + insist, content, tools, require=ANY_TOOL,
+                          operation="plan"),
+                version=1),
         )
-        return self._plan_or_questions(message, version=1)
 
     def revise(self, payload: Mapping[str, Any], locale: str) -> dict[str, Any]:
         """A plan plus a rejection -> the next version, never an edit of the last."""
@@ -187,16 +224,19 @@ class PmWorkflow:
         feedback = _text(payload, "feedback")
         version = int(previous.get("version") or 1)
         context = self._context(feedback, locale, "revise-plan")
-        message = self._ask(
-            locale,
+        instruction = (
             "The user rejected this plan for the reason given. Produce the NEXT VERSION with "
             "deliver_plan. Read the feedback as a constraint, not as something to append: a "
-            "rejection often invalidates a decision made earlier in the plan. " + SCHEMA_NOTE,
-            f"{context}\n\n=== THE PLAN THEY REJECTED ===\n{_render(previous)}"
-            f"\n\n=== WHY ===\n{feedback}",
-            [plan_tool()],
+            "rejection often invalidates a decision made earlier in the plan. " + SCHEMA_NOTE
         )
-        result = self._plan_or_questions(message, version=version + 1)
+        content = (f"{context}\n\n=== THE PLAN THEY REJECTED ===\n{_render(previous)}"
+                   f"\n\n=== WHY ===\n{feedback}")
+        result = self._attempt(
+            lambda insist: self._plan_or_questions(
+                self._ask(locale, instruction + insist, content, [plan_tool()],
+                          require="deliver_plan", operation="revise"),
+                version=version + 1),
+        )
         if "version" in result:
             result["revisionOf"] = {"version": version, "feedback": feedback}
         return result
@@ -216,31 +256,66 @@ class PmWorkflow:
             parts.append(found.invoke(task=skill).text)
         return "\n\n---\n\n".join(parts)
 
-    def _ask(self, locale: str, instruction: str, content: str, tools: list[dict[str, Any]]) -> dict[str, Any]:
+    @staticmethod
+    def _attempt(once: Callable[[str], dict[str, Any]]) -> dict[str, Any]:
+        """Run ``once``, and run it again with a blunter instruction if it did not deliver.
+
+        The project generator has carried this reasoning from the start, with a comment
+        saying free providers drop calls; it was never applied to this half, where a single
+        empty `deliver_plan` came back through the API as a finished plan with nothing in it.
+        The second attempt is not the same request: it is told what went wrong, because
+        repeating a prompt a model just failed is a reasonable way to fail twice.
+        """
+        try:
+            return once("")
+        except RuntimeError as first:
+            return once(
+                f"\n\nYOUR PREVIOUS ANSWER WAS REJECTED: {first}. Call the tool, and put the "
+                f"real content INSIDE the call — an empty call is worse than a short one."
+            )
+
+    def _ask(self, locale: str, instruction: str, content: str, tools: list[dict[str, Any]],
+             require: str | None = None, operation: str = "") -> dict[str, Any]:
         catalog = self._container.i18n.catalog(locale)
         system = (
             f"{self._container.settings.system_prompt}\n\n{instruction}\n\n"
             f"{catalog.t('llm.language_directive')}"
         )
-        gateway = self._container.gateways.create()
+        # With the lock on, the DECISION is scripted and everything else is not: the corpus is
+        # really loaded, the retrieval really ran to build `content`, the citation audit really
+        # inspects what comes back. This half used to have no double at all and answered 502,
+        # which meant the whole flow needed a key and a network from its very first step —
+        # every run starts with a PM call.
+        script = offline.script_for(operation) if self._container.gateways.offline else None
+        gateway = self._container.gateways.create(script=script)
         try:
             return gateway.chat([{"role": "system", "content": system},
-                                 {"role": "user", "content": content}], tools=tools)
-        except OfflineModeError as error:
-            # Said plainly rather than as a 500: the offline lock is a deliberate state, and
-            # these three operations have no scripted double to fall back on.
+                                 {"role": "user", "content": content}], tools=tools, require=require)
+        except OfflineModeError as error:  # pragma: no cover - the script is passed above
             raise RuntimeError(
-                f"The PM agent has no model: {error}. These operations need one — there is no "
-                f"scripted demo for this corpus."
+                f"The PM agent has no model: {error}. These operations need one."
             ) from error
 
     def _plan_or_questions(self, message: Mapping[str, Any], version: int) -> dict[str, Any]:
-        arguments = first_tool_arguments(dict(message))
+        why: list[str] = []
+        # Read by NAME, and the questionnaire first. Taking `tool_calls[0]` whatever it was
+        # meant that when the model emitted both — which it does, having been offered both —
+        # whichever came first won, and a `deliver_plan` sitting second was never seen.
+        asked = first_tool_arguments(dict(message), why, name="ask_questions")
+        if asked is not None:
+            if questions := _questions(asked.get("questions")):
+                return {"reason": str(asked.get("reason") or ""), "questions": questions}
+            raise RuntimeError("the model opened a questionnaire with no usable questions")
+        arguments = first_tool_arguments(dict(message), why, name="deliver_plan")
         if arguments is None:
-            raise RuntimeError("the model answered in prose where a plan was required")
-        if "questions" in arguments:
-            return {"reason": str(arguments.get("reason") or ""),
-                    "questions": _questions(arguments.get("questions"))}
+            raise RuntimeError(
+                "the model produced neither a plan nor a questionnaire" + (f": {why[0]}" if why else "")
+            )
+        if empty := _empty_plan(arguments):
+            # An empty `deliver_plan` used to come back through the API as a plan with 200:
+            # no purpose, no entities, no flows, and one openQuestion saying the plan declared
+            # nothing open. That reads as a finished document and is the absence of one.
+            raise RuntimeError(f"the model called deliver_plan with nothing in it: {empty}")
         return {
             "version": version,
             "purpose": str(arguments.get("purpose") or ""),
@@ -264,6 +339,21 @@ class PmWorkflow:
 
     def _audit(self, *texts: str) -> list[str]:
         return [str(f) for f in self._auditor.audit(*texts)] if self._auditor else []
+
+
+def _empty_plan(arguments: Mapping[str, Any]) -> str:
+    """Why this is not a plan, or ``""``.
+
+    A purpose alone is not enough and neither is a lone list: a plan says what it is for AND
+    names something concrete about the work. Both halves are required because each has been
+    seen without the other.
+    """
+    missing = []
+    if not str(arguments.get("purpose") or "").strip():
+        missing.append("purpose")
+    if not any(_items(arguments.get(field)) for field in ("entities", "roles", "flows", "constraints")):
+        missing.append("entities, roles, flows and constraints are all empty")
+    return "; ".join(missing)
 
 
 def _open_questions(arguments: Mapping[str, Any], audit: Any) -> list[str]:
@@ -290,6 +380,10 @@ def _text(payload: Mapping[str, Any], key: str) -> str:
     if len(value) > MAX_IDEA_CHARS:
         raise ValueError(f"{key!r} is longer than {MAX_IDEA_CHARS} characters")
     return value.strip()
+
+
+def _int(value: Any, default: int) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else default
 
 
 def _list(value: Any) -> list[Any]:

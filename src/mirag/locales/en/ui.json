@@ -352,6 +352,7 @@
     "no_download": "No download: the artifact did not pass the integrity check.",
     "status": {
       "GENERATED": "generated",
+      "INCOMPLETE": "incomplete",
       "VALIDATED": "validated",
       "EXECUTED": "executed",
       "TESTED": "tested",

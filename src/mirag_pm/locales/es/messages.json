@@ -169,24 +169,33 @@
     },
     "problem": {
       "no_files": "el proyecto no tiene archivos",
-      "no_tests": "no hay ningún archivo de tests",
+      "no_tests": "no hay ningún .py bajo tests/, que es donde mira el arnés",
       "no_code": "no hay ningún archivo de código",
       "missing_init": "{package}/ no tiene __init__.py"
     },
+    "plan": {
+      "ok": "están los {count} archivos del plano",
+      "missing": "faltan {count} archivos del plano: {detail}",
+      "extra": "{count} archivos además del plano, lo cual se permite"
+    },
     "syntax": {
-      "ok": "todos los archivos compilan"
+      "ok": "todos los archivos compilan",
+      "repaired": "compila tras la reparación {attempt}"
     },
     "imports": {
       "broken": "{count} imports rotos",
       "limited": "{count} dependencias no instaladas aquí",
-      "ok": "el grafo de imports resuelve entero"
+      "ok": "el grafo de imports resuelve entero",
+      "repaired": "reparado en el intento {attempt}: todos los imports resuelven"
     },
     "repair": {
       "imports": "{count} archivos tocados por imports rotos",
+      "syntax": "{count} archivos tocados porque no compilan",
       "tests": "{count} archivos tocados por tests en rojo"
     },
     "execution": {
       "limited": "no se ejecuta aquí: falta {missing}",
+      "deadline": "sin ejecutar: se acabó el tiempo de esta petición",
       "disabled": "sin ejecutar: la ejecución está apagada (MIRAG_EXECUTION=off). Los tests se entregan para el agente de QA"
     },
     "documented": {
@@ -194,7 +203,7 @@
       "ok": "`{command}` corre sin errores"
     },
     "crud": {
-      "skipped": "el proyecto no expone create_server(): no hay API que ejercitar"
+      "skipped": "el proyecto no expone una fábrica de servidor (create_server): no hay API que ejercitar"
     },
     "crud_risk": "la operación {operation} no funciona de verdad",
     "crud_property": "{operation} responde por HTTP",
@@ -219,6 +228,7 @@
     "silent_phase": "la fase '{phase}' se ejecutó y no produjo ni un marcador: no hay forma de saber qué probó",
     "phase_failed": "la fase '{phase}' falló",
     "verified": "los {count} marcadores pasan",
+    "incomplete": "{count} archivos que el plano pedía no se escribieron nunca: {detail}",
     "verified_crud_suffix": ", incluido el CRUD completo por HTTP"
   },
   "generation": {
@@ -228,11 +238,24 @@
     "call_cap": "tope de {cap} llamadas alcanzado: este grupo no se generó",
     "group_files": "{count} archivos",
     "group_rejected": "{count} rechazados",
+    "group_early": "{count} archivos que ya había entregado un grupo anterior",
+    "group_missing": "{count} archivos del plano que el modelo nunca entregó",
+    "budget_stopped": "se alcanzó el tope de gasto; se conserva lo generado — {reason}",
+    "provider_stopped": "el proveedor dejó de responder; se conserva lo generado — {reason}",
+    "deadline_stopped": "se acabó el tiempo de esta petición; se conserva lo generado — {reason}",
+    "abandoned_stopped": "ya nadie está esperando esto; se detuvo — {reason}",
+    "unreachable_stopped": "no se pudo llegar al proveedor; se conserva lo generado — {reason}",
+    "model_stopped": "el modelo dejó de responder; se conserva lo generado — {reason}",
+    "stopped_earlier": "no se pidió: la generación ya se había detenido — {reason}",
     "problem": {
       "no_tests": "el plano no incluye ningún archivo en tests/: sin tests no hay nada que verificar",
+      "no_readme": "el plano no trae README: un proyecto que nadie puede ejecutar no es una entrega",
       "no_entrypoint": "el plano no marca ningún entrypoint",
       "bad_interpreter": "el comando de test empieza por '{first}' y aquí solo hay {available}"
-    }
+    },
+    "no_plan_retry": "el modelo no devolvió un plano utilizable; se lo pido otra vez",
+    "entrypoint_assumed": "el plano no marcaba entrypoint: se toma '{path}' como tal",
+    "plan_unusable": "el plano no tiene entrypoint ni se puede deducir uno: nada de lo que sigue podría ejecutarse"
   },
   "phase": {
     "structure": "Estructura",
@@ -280,7 +303,10 @@
       "offline": "candado offline: no se llamó a nadie",
       "no_model_answer": "[sin modelo] {error}",
       "asked_code": "pidió entregar código",
-      "answered_text": "respondió texto"
+      "answered_text": "respondió texto",
+      "rate_limited": "el proveedor rechazó la llamada: {error}",
+      "budget": "se alcanzó el tope de gasto de esta petición: {error}",
+      "budget_partial": "se alcanzó el tope de gasto; se conserva lo ya generado"
     },
     "delivery": {
       "summary": "{count} archivos · {command}",
