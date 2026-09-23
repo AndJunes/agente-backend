@@ -36,7 +36,7 @@ class CanonicalDemo:
 
 CANONICAL: dict[str, CanonicalDemo] = {
     "project": CanonicalDemo("project", "project", {
-        "has_project": True, "files": 10, "project_status": ("VERIFIED",), "integrity_ok": True,
+        "took_project_branch": True, "has_project": True, "files": 10, "project_status": ("VERIFIED",), "integrity_ok": True,
         "crud_verified": 7, "has_download": True}),
     "knowledge": CanonicalDemo("knowledge", "conceptual", {
         "has_answer": True, "has_retrieval": True, "has_code": False, "sufficiency": ("covered", "mentioned")}),

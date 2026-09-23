@@ -7,12 +7,14 @@ emits a closing ``done`` event with the panels the page draws.
 
 from __future__ import annotations
 
+import threading
+
 from collections.abc import Callable
 from typing import Any
 
 from mirag.agent.architect import ArchitectWorkflow
 from mirag.api.schemas import ChatMode, ChatRequest
-from mirag.core.errors import BudgetExceededError
+from mirag.core.errors import BudgetExceededError, RunStoppedError
 from mirag.evidence.claims import ClaimAuditor
 from mirag.execution.verdict import ExecutionResult
 from mirag.i18n.catalog import MessageCatalog
@@ -52,7 +54,14 @@ class ChatService:
         self._demos = demos
         self._architect = architect
 
-    def handle(self, request: ChatRequest, emit: Emit, accept_language: str | None = None) -> None:
+    def handle(self, request: ChatRequest, emit: Emit, accept_language: str | None = None,
+               cancelled: threading.Event | None = None) -> None:
+        """One request, start to finish.
+
+        ``cancelled`` rides inside the gateway's `Deadline` rather than being threaded through
+        the pipeline: the gateway is the single object every model call already passes
+        through, so one parameter here reaches all of them and no stage has to learn a new
+        word."""
         locale = self._i18n.resolve(request.locale, accept_language)
         t = self._i18n.catalog(locale)
         executions: list[ExecutionResult] = []
@@ -77,9 +86,10 @@ class ChatService:
         gateway: LLMGateway | None = None
         try:
             if request.mode == ChatMode.PIPELINE:
-                gateway, answer = self._pipeline_mode(request.question, locale, t, forward, panels)
+                gateway, answer = self._pipeline_mode(request.question, locale, t, forward,
+                                                      panels, cancelled)
             elif request.mode == ChatMode.ARCHITECT:
-                gateway = self._gateways.create()
+                gateway = self._gateways.create(cancelled=cancelled)
                 result = self._architect(locale).design(request.question, gateway, on_event=forward)
                 answer = result.final_answer or t("chat.no_phases")
                 if result.exhausted:
@@ -90,6 +100,10 @@ class ChatService:
                 answer = t("chat.unknown_mode", mode=request.mode, modes=", ".join(m.value for m in self.MODES))
         except BudgetExceededError as exc:
             answer = f"⛔ {exc}"
+        except RunStoppedError as exc:
+            # The clock running out and the person leaving are the same SHAPE of event as a
+            # spent budget — stop, keep what exists, say so — and not the same sentence.
+            answer = f"⏱ {exc}"
         except Exception as exc:  # what was emitted so far is already in the browser
             answer = f"Error: {type(exc).__name__}: {exc}"
 
@@ -100,7 +114,8 @@ class ChatService:
                  "claim_status": claim_status.value, **panels})
 
     def _pipeline_mode(self, question: str, locale: str, t: MessageCatalog, emit: Emit,
-                       panels: dict[str, Any]) -> tuple[LLMGateway, str]:
+                       panels: dict[str, Any],
+                       cancelled: threading.Event | None = None) -> tuple[LLMGateway, str]:
         demo: str | None = None
         if self._gateways.offline:
             # With the lock on the machine can still be seen working: the only thing replaced
@@ -111,9 +126,9 @@ class ChatService:
                   "ms": 0.0, "source": "execution",
                   "summary": t("chat.offline.demo", demo=demo) if demo else t("chat.offline.no_demo"),
                   "detail": {"demo": demo, "offline": True, "available_demos": demos.available_scripts()}})
-            gateway = self._gateways.create(script=script)
+            gateway = self._gateways.create(script=script, cancelled=cancelled)
         else:
-            gateway = self._gateways.create()
+            gateway = self._gateways.create(cancelled=cancelled)
 
         run = self._pipeline.run(question, gateway, locale, on_step=lambda step: emit(StepSerializer.to_event(step)))
         answer = AnswerFormatter(t).pipeline_answer(run, demo)

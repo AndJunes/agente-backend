@@ -4,13 +4,19 @@ from __future__ import annotations
 
 import hmac
 import json
+import select
+import socket
+import threading
+import traceback
 import urllib.parse
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from mirag import __version__
 from mirag.api.router import Router
 from mirag.api.schemas import MAX_BODY_BYTES, ChatRequest, ValidationError
+from mirag.core.errors import MiragError, ModelUnreachableError, RateLimitedError
 from mirag.core.text import sha256_hex
 from mirag.projects.artifacts import VALID_ID
 from mirag.projects.model import safe_name
@@ -20,8 +26,12 @@ if TYPE_CHECKING:
 
 API = "/api/v1"
 TOKEN_HEADER = "X-Mirag-Token"
-PROTECTED_ROUTES = frozenset({"chat", "download"})
-"""What costs money or hands out generated code. The page, health and the rest stay open."""
+PROTECTED_ROUTES = frozenset({"chat", "download", "operation"})
+"""What costs money or hands out generated code. The page, health and the rest stay open.
+
+`operation` is in here from the moment the route exists, not after someone notices. This is a
+frozenset of route NAMES and the check is membership, so a route registered without its name
+added is a route with no token on a network whose whole defence is that token."""
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
@@ -47,8 +57,16 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
         path, _, query = self.path.partition("?")
         return path, urllib.parse.parse_qs(query)
 
+    _answered = False
+    """Whether anything has already gone out on this connection.
+
+    The catch-all in `_dispatch` needs it: a handler that failed AFTER sending its headers —
+    a stream that died half way — must not have a second response written on top of the
+    first, which would leave the caller parsing two bodies glued together."""
+
     def _send(self, status: int, body: bytes, content_type: str, head_only: bool = False,
               extra: dict[str, str] | None = None) -> None:
+        self._answered = True
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
@@ -105,7 +123,22 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
         if head_only and route.name == "download":
             self._error(404, "not_found", "HEAD does not download", head_only=True)
             return
-        route.handler(self, query=query, head_only=head_only, **params)
+        try:
+            route.handler(self, query=query, head_only=head_only, **params)
+        except Exception as exc:
+            # Anything a handler did not expect used to leave here uncaught, and `socketserver`
+            # answers that by CLOSING THE CONNECTION with nothing on it. Through the gateway
+            # that arrives as "Service 'pm' is unreachable" after a minute of waiting — a
+            # sentence about the wrong machine. Measured: a TLS failure reaching OpenRouter
+            # took down the whole request and said the agent was down.
+            #
+            # The detail is the exception's type and message, never its traceback: it is the
+            # difference between debugging in one minute and reading a stack the caller
+            # cannot see. Nothing here is user input echoed back.
+            self.log_error("unhandled %s in %s: %s", type(exc).__name__, route.name, exc)
+            traceback.print_exc()
+            if not getattr(self, "_answered", False):
+                self._error(500, "internal_error", f"{type(exc).__name__}: {exc}", head_only)
 
     def do_GET(self) -> None:
         self._dispatch("GET")
@@ -185,6 +218,56 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
         ``{"available": false, "reason": ...}`` and the server stays up."""
         self._json(self.container.blockchain_status(), head_only=head_only)
 
+    def operation(self, query: dict[str, list[str]], head_only: bool, operation: str) -> None:
+        """One of this agent's named operations: JSON in, JSON out, no stream.
+
+        Not a mode of `/chat`: `ChatRequest` is `question`, `mode`, `locale` and deliberately
+        strict, with nowhere to carry a questionnaire's answers or the plan being revised.
+        """
+        run = (self.container.operations or {}).get(operation)
+        if run is None:
+            self._error(404, "unknown_operation",
+                        f"this agent serves: {', '.join(sorted(self.container.operations or {}))}", head_only)
+            return
+        payload = self._read_json(head_only)
+        if payload is None:
+            return
+        locale = self.container.i18n.resolve(
+            payload.get("locale") if isinstance(payload.get("locale"), str) else None,
+            self.headers.get("Accept-Language"))
+        try:
+            self._json(run(payload, locale), head_only=head_only)
+        except ValueError as exc:
+            self._error(400, "invalid_request", str(exc), head_only)
+        except (ModelUnreachableError, RateLimitedError) as exc:
+            # 503 and not 502: the provider is the one that is unavailable, and the caller may
+            # usefully try again. It used to be neither — these are not RuntimeErrors, so they
+            # escaped this handler entirely and the connection was dropped with no body.
+            self._error(503, "model_unavailable", str(exc), head_only)
+        except (RuntimeError, MiragError) as exc:
+            # 502: the operation is well-formed and the model behind it did not deliver.
+            self._error(502, "upstream_failed", str(exc), head_only)
+
+    def _read_json(self, head_only: bool) -> dict[str, Any] | None:
+        """The request body as an object, or ``None`` after answering with the error."""
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = -1
+        if length <= 0 or length > MAX_BODY_BYTES:
+            self._error(413 if length > MAX_BODY_BYTES else 400, "bad_length",
+                        f"Content-Length must be between 1 and {MAX_BODY_BYTES}", head_only)
+            return None
+        try:
+            payload = json.loads(self.rfile.read(length))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self._error(400, "invalid_json", "the body must be a JSON object", head_only)
+            return None
+        if not isinstance(payload, dict):
+            self._error(400, "invalid_json", "the body must be a JSON object", head_only)
+            return None
+        return payload
+
     def chat(self, query: dict[str, list[str]], head_only: bool) -> None:
         try:
             length = int(self.headers.get("Content-Length") or 0)
@@ -200,6 +283,7 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
             self._error(400, exc.code, str(exc))
             return
 
+        self._answered = True  # from here on the catch-all must not write a second response
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
@@ -209,23 +293,131 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.close_connection = True
         gone = False
+        cancelled = threading.Event()
+        """`gone` says WRITING is pointless. This says the WORK is.
 
-        def emit(event: dict[str, Any]) -> None:
-            """One SSE event. flush() on each one or the browser sees nothing until the end."""
+        They are not the same fact, and conflating them is why a closed tab kept generating —
+        and kept being billed — for twenty minutes after nobody was left to read it."""
+
+        writing = threading.Lock()
+        """One writer at a time. The heartbeat below shares this `wfile` with `emit`, and two
+        threads interleaving mid-frame would produce an SSE event nobody can parse."""
+
+        def write(frame: str) -> None:
             nonlocal gone
             if gone:
                 return
             try:
-                payload = json.dumps(event, ensure_ascii=False, default=str)
-                self.wfile.write(f"data: {payload}\n\n".encode())
-                self.wfile.flush()
+                with writing:
+                    self.wfile.write(frame.encode())
+                    self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 gone = True
+                if self.container.settings.cancel_on_disconnect:
+                    cancelled.set()
 
-        self.container.chat.handle(request, emit, self.headers.get("Accept-Language"))
+        def emit(event: dict[str, Any]) -> None:
+            """One SSE event. flush() on each one or the browser sees nothing until the end."""
+            write(f"data: {json.dumps(event, ensure_ascii=False, default=str)}\n\n")
+
+        with (_DisconnectWatch(self.connection, cancelled,
+                               self.container.settings.cancel_on_disconnect),
+              _Heartbeat(write)):
+            self.container.chat.handle(request, emit, self.headers.get("Accept-Language"),
+                                       cancelled=cancelled)
 
 
-def build_router() -> Router:
+class _Heartbeat:
+    """Keeps the stream from going silent long enough for somebody in the middle to kill it.
+
+    This is not a nicety. One model call averages 234 seconds and the pipeline emits a step
+    per call, so the gaps in this stream are routinely minutes long. Undici — which is what
+    Node's `fetch` uses, and therefore what the front end's proxy uses — cuts a response body
+    after 300 seconds WITHOUT A BYTE. Measured: a generation died at exactly that,
+    `UND_ERR_BODY_TIMEOUT`, with the backend still working perfectly.
+
+    Every intermediary has a version of this limit: nginx has `proxy_read_timeout`, browsers
+    have their own, and none of them can tell "still thinking" from "dead". A stream that goes
+    quiet for five minutes is fragile by construction, and no timeout setting anywhere else
+    fixes it for the next hop.
+
+    A line beginning with `:` is an SSE comment. The spec says clients ignore it, and this
+    project's reader does so by construction: it keeps only the parts that start with
+    `data: `.
+    """
+
+    EVERY_S = 15.0
+    """Far under any limit worth worrying about, and 40 bytes a minute."""
+
+    def __init__(self, write: Callable[[str], None]) -> None:
+        self._write = write
+        self._done = threading.Event()
+        self._thread = threading.Thread(target=self._beat, name="sse-heartbeat", daemon=True)
+
+    def __enter__(self) -> _Heartbeat:
+        self._thread.start()
+        return self
+
+    def __exit__(self, *_exc: Any) -> None:
+        self._done.set()
+        self._thread.join(timeout=2.0)
+
+    def _beat(self) -> None:
+        while not self._done.wait(self.EVERY_S):
+            self._write(": keep-alive\n\n")
+
+
+class _DisconnectWatch:
+    """Notices the client leaving during the SILENCE, not at the next write.
+
+    `emit` finds out the browser is gone when a write fails — and the window that matters is
+    exactly the one with no writes in it: a single model call averages 234 seconds. Detection
+    driven by writes is therefore honest and mostly inert.
+
+    The test is one line of socket semantics: a connection whose peer sent FIN is readable and
+    peeks as zero bytes. Readable and NON-empty means the client is sending something nobody
+    asked for — this connection is `Connection: close` and its body was read long ago — and
+    `MSG_PEEK` takes nothing from anybody either way.
+
+    Best-effort by nature. A peer killed without a FIN (power cut, partition) is never
+    noticed, and behind a reverse proxy this only ever sees the proxy's connection, which can
+    outlive its own client. The wall-clock deadline is what makes cancellation eventually
+    correct; this only makes it fast in the common case.
+    """
+
+    POLL_S = 1.0
+
+    def __init__(self, connection: Any, cancelled: threading.Event, enabled: bool) -> None:
+        self._connection = connection
+        self._cancelled = cancelled
+        self._enabled = enabled
+        self._done = threading.Event()
+        self._thread = threading.Thread(target=self._watch, name="sse-disconnect", daemon=True)
+
+    def __enter__(self) -> _DisconnectWatch:
+        if self._enabled:
+            self._thread.start()
+        return self
+
+    def __exit__(self, *_exc: Any) -> None:
+        self._done.set()
+        if self._enabled:
+            self._thread.join(timeout=2.0)
+
+    def _watch(self) -> None:
+        while not self._done.wait(self.POLL_S):
+            try:
+                if not select.select([self._connection], [], [], 0)[0]:
+                    continue
+                if self._connection.recv(1, socket.MSG_PEEK) == b"":
+                    self._cancelled.set()
+                    return
+            except (OSError, ValueError):
+                self._cancelled.set()  # the socket is gone, and so is the client
+                return
+
+
+def build_router(container: Container | None = None) -> Router:
     router = Router()
     h = ApiRequestHandler
     router.add("GET", "/", h.page, "page")
@@ -237,6 +429,10 @@ def build_router() -> Router:
     router.add("GET", f"{API}/artifacts/{{artifact_id}}/download", h.download, "download")
     router.add("GET", f"{API}/blockchain/agent", h.blockchain, "blockchain")
     router.add("POST", f"{API}/chat", h.chat, "chat")
+    # Registered only when this container has operations, so a process that cannot serve them
+    # does not advertise them. The backend answers 404 here, which is the truth.
+    if container is not None and container.operations:
+        router.add("POST", f"{API}/{{operation}}", h.operation, "operation")
     return router
 
 
@@ -248,7 +444,8 @@ class MiragHTTPServer(ThreadingHTTPServer):
 
 
 def build_server(container: Container, host: str | None = None, port: int | None = None) -> MiragHTTPServer:
-    handler = type("BoundApiRequestHandler", (ApiRequestHandler,), {"container": container, "router": build_router()})
+    handler = type("BoundApiRequestHandler", (ApiRequestHandler,),
+                   {"container": container, "router": build_router(container)})
     # Loopback by default and never "": "" is 0.0.0.0, every interface. The one planned
     # exception is a container, where 0.0.0.0 is the only way a published port reaches the
     # process; what isolates it there is publishing against 127.0.0.1 (docs/*/deployment.md).

@@ -2,10 +2,16 @@
 # it is not versioned. Everything else is, including what looks like old documentation:
 # the reports in docs/history are the evidence of the project, not leftovers.
 
-# Secrets. Never. .env.example IS versioned.
+# Secrets. Never. Only the .example templates are versioned.
+#
+# `.env.*` and not a list of names: the list already failed once. A real `.env.server`
+# with a live OpenRouter key sat here untracked and one `git add .` from a PUBLIC repo,
+# because the patterns named `.env.local` and `.env.*.local` and nobody had thought of
+# that one. Deny everything, then allow the two templates by name.
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+!.env.server.example
 
 # Interpreter and tooling caches
 __pycache__/

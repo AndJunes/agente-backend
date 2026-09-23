@@ -77,10 +77,24 @@ fi
 ok "clean"
 
 # ── 3 · build both ──────────────────────────────────────────────────────────────
-step "Building"
-docker build -q --target base      -t "$IMAGE:$SHA"           -t "$IMAGE:latest"           . >/dev/null
-docker build -q --target identidad -t "$IMAGE:$SHA-identidad" -t "$IMAGE:latest-identidad" . >/dev/null
-ok "base $(docker images --format '{{.Size}}' "$IMAGE:latest" | head -1) · identidad $(docker images --format '{{.Size}}' "$IMAGE:latest-identidad" | head -1)"
+# Two architectures, and the reason is concrete: an image built on an Apple Silicon Mac is
+# arm64 ONLY, and it does not start on an x86 server. That failure appears at `docker run`
+# on the server, hours later, with an error that does not name the cause. Building for both
+# means the same tag works on Oracle (ARM Ampere), on Azure/Hetzner (x86) and on a laptop.
+#
+# It needs a `docker-container` builder; the default `docker` driver cannot do it:
+#   docker buildx create --name multiarch --driver docker-container --bootstrap
+PLATFORMS="${MIRAG_PLATFORMS:-linux/amd64,linux/arm64}"
+BUILDER="${MIRAG_BUILDER:-multiarch}"
+docker buildx inspect "$BUILDER" >/dev/null 2>&1 \
+  || fail "no builder '$BUILDER'. Create it with: docker buildx create --name $BUILDER --driver docker-container --bootstrap"
+
+# First the local one, for THIS machine only, because the smoke test below has to run it and
+# a multi-platform build cannot be loaded into the local docker.
+step "Building for this machine (to try it)"
+docker buildx build --builder "$BUILDER" --load --target base \
+  -t "$IMAGE:$SHA" -t "$IMAGE:latest" . >/dev/null 2>&1 || fail "the local build failed"
+ok "base $(docker images --format '{{.Size}}' "$IMAGE:latest" | head -1)"
 
 # ── 4 · the built image starts, BEFORE publishing it ────────────────────────────
 # Publishing something that does not start is worse than not publishing: it fails on the server.
@@ -110,17 +124,30 @@ if [ "$PUSH" -eq 0 ]; then
   exit 0
 fi
 
-step "Publishing to $REGISTRY"
-for tag in "$SHA" latest "$SHA-identidad" latest-identidad; do
-  docker push -q "$IMAGE:$tag" >/dev/null || fail "pushing $tag failed (did you log in?)"
-  ok "$IMAGE:$tag"
-done
+# Multi-platform builds publish straight from the builder: there is no local image to push,
+# because a single local tag cannot hold two architectures. That is why this rebuilds instead
+# of pushing what was just tried — the layers are cached, so it costs seconds.
+step "Building and publishing $PLATFORMS to $REGISTRY"
+docker buildx build --builder "$BUILDER" --platform "$PLATFORMS" --target base \
+  -t "$IMAGE:$SHA" -t "$IMAGE:latest" --push . >/dev/null 2>&1 \
+  || fail "publishing the base image failed (did you log in?)"
+ok "$IMAGE:latest and :$SHA"
+docker buildx build --builder "$BUILDER" --platform "$PLATFORMS" --target identidad \
+  -t "$IMAGE:$SHA-identidad" -t "$IMAGE:latest-identidad" --push . >/dev/null 2>&1 \
+  || fail "publishing the identity image failed"
+ok "$IMAGE:latest-identidad and :$SHA-identidad"
 
 # ── 6 · and what was published is what was checked ─────────────────────────────
 step "Checking what was published"
 docker rmi "$IMAGE:$SHA" >/dev/null 2>&1 || true
 docker pull -q "$IMAGE:$SHA" >/dev/null || fail "cannot pull what was just pushed"
-ok "$IMAGE:$SHA pulls correctly"
+# And that BOTH architectures are really in the manifest. Without this the multi-arch build
+# could silently fall back to one and nobody would notice until the server refused to start.
+archs="$(docker manifest inspect "$IMAGE:$SHA" | grep -o '"architecture": "[a-z0-9]*"' | cut -d'"' -f4 | sort -u | tr '\n' ' ')"
+case "$archs" in
+  *amd64*arm64*|*arm64*amd64*) ok "$IMAGE:$SHA pulls, and carries: $archs" ;;
+  *) fail "the published manifest only has: $archs" ;;
+esac
 
 printf "\n\033[1mPublished.\033[0m On the server:\n"
 printf "  docker compose -f docker-compose.prod.yml pull\n"

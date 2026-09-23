@@ -38,6 +38,92 @@ jobs:
           PYTHONPATH: src
         run: python -m mirag demo all
 
+      # Spanish was never being checked. `demo all` defaults to MIRAG_LOCALE, which is `en`,
+      # so every run so far has covered one of the two corpora — and the front end asks in
+      # Spanish. The parity between the two is a stated invariant; nothing was enforcing it.
+      - name: The demo contracts, in Spanish
+        env:
+          MIRAG_OFFLINE: "1"
+          PYTHONPATH: src
+        run: python -m mirag demo all --locale es
+
+      # `tests/` was deleted, so these two are what stands in for it on the PM side. Neither
+      # needs a model, a network or a key. They check the two things that fail silently: an
+      # index that quietly empties, and a document no skill can reach.
+      - name: The PM corpus loads, in every locale it serves
+        env:
+          PYTHONPATH: src
+        run: python -m mirag_pm.cli doctor
+
+      - name: Every PM document is reachable by a skill
+        env:
+          PYTHONPATH: src
+        run: python -m mirag_pm.cli coverage --by-domain
+
+      # What was planned is what gets delivered, and a rejected verdict is not downloadable.
+      # Both of these shipped broken: a 36-file plan delivered 12 and came out with a download
+      # button, because nothing downstream of the generator ever compared the two.
+      - name: A project that does not match its plan is not deliverable
+        env:
+          PYTHONPATH: src
+        run: python scripts/check_delivery.py
+
+      # A call that hangs must end. `urlopen(timeout=)` bounds one `recv` and every byte
+      # rearms it, so a provider sending one byte a minute never timed out at all — the whole
+      # generation hung with nothing in the process able to stop it. Real sockets on
+      # loopback: no model, no network, no key.
+      - name: A hanging call ends, and a closed tab stops the work
+        env:
+          PYTHONPATH: src
+        run: python scripts/check_deadlines.py
+
+      # A failing test has to reach the repairer as a file, a line and a reason — not as a
+      # truncated log and the literal string "(see the output)". The fixture is a real run
+      # that produced 41 red tests and two repairs that fixed nothing.
+      - name: A failing test tells the repairer where to look
+        env:
+          PYTHONPATH: src
+        run: python scripts/check_repair.py
+
+      # The batches of a group go at once. Concurrency is cheap — OpenRouter allows 20
+      # requests a minute and a call takes 234 seconds — but correctness is not: one writer
+      # for the project, exact call counting, no thread left behind.
+      - name: Batches run at once without losing files or miscounting calls
+        env:
+          PYTHONPATH: src
+        run: python scripts/check_parallel.py
+
+      # The PM half had no double at all: with the lock on it answered 502, so the flow could
+      # not be exercised from its very first step without a key and a network.
+      - name: The PM agent answers with the lock on
+        env:
+          MIRAG_OFFLINE: "1"
+          PYTHONPATH: src
+        run: |
+          python - <<'CHECK'
+          from mirag_pm.container import build_pm_container
+          ops = build_pm_container().operations
+          idea = {"idea": "Una API REST de reservas con CRUD completo.", "locale": "es"}
+          seen = ops["analyze"](idea, "es")
+          assert seen["summary"], "analyze said nothing"
+          assert (seen.get("questionnaire") or {}).get("questions"), "analyze asked nothing"
+          plan = ops["plan"]({**idea, "round": 1, "maxRounds": 2, "answers": []}, "es")
+          assert plan.get("purpose") and plan.get("entities"), "plan came back empty"
+          assert ops["revise"]({"plan": plan, "feedback": "falta cancelar", "locale": "es"},
+                               "es")["version"] == 2, "revise did not produce a next version"
+          print("the three PM operations answer offline")
+          CHECK
+
+      # The isolation invariant, in three lines. One process reads one corpus only because
+      # exactly one module resolves the corpus directory; if that spreads, the guarantee that
+      # the two agents cannot mix stops being checkable.
+      - name: Only one module resolves the corpus directory
+        run: |
+          matches=$(git grep -l "from mirag.paths import.*KNOWLEDGE_DIR" -- src || true)
+          if [ "$matches" != "src/mirag/i18n/registry.py" ]; then
+            echo "KNOWLEDGE_DIR is imported outside i18n/registry.py:"; echo "$matches"; exit 1
+          fi
+
       - name: No credential in what is versioned
         run: |
           # Cheap, and it covers the most expensive slip: a .env committed by mistake.

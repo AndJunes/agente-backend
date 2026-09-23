@@ -32,7 +32,22 @@ services:
       # scripted demos answer and the model's network is never touched.
       MIRAG_OFFLINE: "${MIRAG_OFFLINE:-0}"
       MIRAG_EXECUTION: "off"       # generates code and tests, does not run them. That is QA's.
-      MIRAG_MODEL: "openrouter/free"
+      # PINNED, and `openrouter/free` is what it is pinned AGAINST.
+      #
+      # That id is valid — it routes to whichever free model happens to be available — and for
+      # the project branch it is a lottery. Measured across the nineteen free models that
+      # advertise tool support: both nemotrons cannot emit a newline inside a tool call and
+      # produce a whole project on one line per file; three others burn their entire output
+      # budget reasoning and return an empty message. `openrouter/free` was observed routing to
+      # one of those. The generation then fails in a way that looks like the agent is broken
+      # rather than like the model is.
+      #
+      # `scripts/probe_models.py` is how this name gets chosen again when it stops existing.
+      MIRAG_MODEL: "${MIRAG_BACKEND_MODEL:-inclusionai/ling-3.0-flash-vl:free}"
+      # The model's ceiling, not half of it. Reasoning tokens come out of this budget: at
+      # 16,000 a batch came back three times running with `finish_reason: length` and an empty
+      # message — the whole allowance spent thinking, nothing written.
+      MIRAG_MAX_OUTPUT_TOKENS: "${MIRAG_MAX_OUTPUT_TOKENS:-32000}"
       MIRAG_BUDGET_USD: "0.50"
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is missing from .env}"
       # Even with no published port the token is worth it: it limits the damage if another
@@ -44,6 +59,55 @@ services:
     tmpfs: [ "/tmp:rw,noexec,nosuid,size=64m" ]
     pids_limit: 256
     mem_limit: 1g
+    cpus: 1.5
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # The SAME image, told it is a different agent. It reads the PM corpus instead of the
+  # backend one, carries the PM lexicon, and serves analyze/plan/revise instead of /chat.
+  #
+  # THIS IS WHERE "the two agents do not mix" IS ENFORCED. Not by careful coding: by the fact
+  # that these are two processes with two address spaces. One process holds one container, one
+  # container holds one I18n, and that object is told at construction which corpus to read.
+  # There is no field in any request that can reach across.
+  mirag-pm:
+    image: "${MIRAG_IMAGEN:-andreajunes/agente-backend}:${MIRAG_TAG:-latest}"
+    pull_policy: always
+    container_name: mirag-pm
+    restart: unless-stopped
+    command: ["python", "-m", "mirag_pm", "serve"]
+
+    # No `ports:` here either, for the same reason as above: CodeZard reaches it as
+    # http://mirag-pm:8000 inside this network and nowhere else.
+    networks: [interna]
+
+    environment:
+      MIRAG_HOST: 0.0.0.0
+      MIRAG_OFFLINE: "${MIRAG_OFFLINE:-0}"
+      MIRAG_EXECUTION: "off"       # belt and braces: this agent has no run_code tool at all
+      # The PM writes prose and single-line strings, never source, so the newline defect that
+      # rules nemotron out for the backend does not touch it — and it plans well. Pinned all
+      # the same: a flow whose two halves change model between deploys is one nobody can debug.
+      MIRAG_MODEL: "${MIRAG_PM_MODEL:-nvidia/nemotron-3-ultra-550b-a55b:free}"
+      MIRAG_BUDGET_USD: "0.50"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is missing from .env}"
+      # ITS OWN TOKEN, and the `:?` makes forgetting it fail the deployment rather than start
+      # an open service. Sharing one token between the two would mean that compromising either
+      # yields both, which throws away most of what running two processes buys.
+      MIRAG_TOKEN: "${MIRAG_PM_TOKEN:?MIRAG_PM_TOKEN is missing from .env}"
+      # The corpus and the lexicon are not set: the defaults inside `mirag_pm` point at its own
+      # package, and the invariant that keeps the two apart is that only one module resolves a
+      # corpus directory. Overriding these from here is supported, and is for pointing at a
+      # corpus mounted from elsewhere — not something this deployment needs.
+
+    security_opt: [ "no-new-privileges:true" ]
+    cap_drop: [ ALL ]
+    tmpfs: [ "/tmp:rw,noexec,nosuid,size=64m" ]
+    pids_limit: 256
+    # 2g, not 1g: this corpus is 1,065,428 characters against the backend's 498,654, and 876
+    # sections against 266. Measure with `mirag-pm doctor` before changing it.
+    mem_limit: 2g
     cpus: 1.5
     logging:
       driver: json-file

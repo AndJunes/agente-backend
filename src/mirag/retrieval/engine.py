@@ -8,6 +8,8 @@ except the stateless feature gate and the vector backend configuration.
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
+from pathlib import Path
 from dataclasses import dataclass
 
 from mirag.features.flags import FeatureGate
@@ -15,6 +17,7 @@ from mirag.i18n.catalog import MessageCatalog
 from mirag.i18n.lexicon import Lexicon
 from mirag.i18n.registry import I18n
 from mirag.retrieval.context import ContextBuilder
+from mirag.i18n.corpus_format import CorpusFormat
 from mirag.retrieval.corpus import KnowledgeCorpus
 from mirag.retrieval.graph import ChunkGraph
 from mirag.retrieval.hybrid import HybridRetriever, VectorIndexCache
@@ -50,13 +53,24 @@ class RetrievalEngine:
     symbols: SymbolSearcher
 
 
+CorpusLoader = Callable[[Path, CorpusFormat, str | None], KnowledgeCorpus]
+"""``(directory, format, locale) -> corpus``. ``KnowledgeCorpus.load`` is one."""
+
+
 class RetrievalEngineFactory:
     """Builds (once) and returns the engine of each locale. Thread safe."""
 
-    def __init__(self, i18n: I18n, gate: FeatureGate, vector_factory: VectorStoreFactory) -> None:
+    def __init__(self, i18n: I18n, gate: FeatureGate, vector_factory: VectorStoreFactory,
+                 corpus_loader: CorpusLoader = KnowledgeCorpus.load) -> None:
+        # The loader is a parameter because "a corpus" is a shape, not just a directory. A
+        # body of knowledge written to a different contract — frontmatter and domain folders
+        # rather than numbered files and card blockquotes — parses cleanly with the default
+        # loader and yields empty typed indices, which fails silently. Whoever owns the other
+        # shape brings the reader for it.
         self._i18n = i18n
         self._gate = gate
         self._vector_factory = vector_factory
+        self._load_corpus = corpus_loader
         self._engines: dict[str, RetrievalEngine] = {}
         self._lock = threading.Lock()
 
@@ -73,7 +87,7 @@ class RetrievalEngineFactory:
     def _build(self, locale: str) -> RetrievalEngine:
         catalog = self._i18n.catalog(locale)
         lexicon = self._i18n.lexicon(locale)
-        corpus = KnowledgeCorpus.load(self._i18n.knowledge_dir(locale), self._i18n.corpus_format(locale), locale)
+        corpus = self._load_corpus(self._i18n.knowledge_dir(locale), self._i18n.corpus_format(locale), locale)
         ranker = Bm25Ranker()
         metadata = MetadataExtractor(corpus, lexicon)
         metadata_filter = MetadataFilter(metadata, catalog)
