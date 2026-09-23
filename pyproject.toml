@@ -20,6 +20,7 @@ dev = ["ruff>=0.6", "mypy>=1.10"]
 [project.scripts]
 mirag = "mirag.cli:main"
 mirag-pm = "mirag_pm.cli:main"
+mirag-manager = "mirag_manager.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -58,7 +59,7 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.11"
-files = ["src/mirag", "src/mirag_pm"]
+files = ["src/mirag", "src/mirag_pm", "src/mirag_manager"]
 ignore_missing_imports = true
 warn_unused_ignores = true
 no_implicit_optional = true

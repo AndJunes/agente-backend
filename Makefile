@@ -1,12 +1,19 @@
 PYTHON ?= python
 
-.PHONY: install run lint format typecheck demo clean runner-image
+.PHONY: install run run-manager lint format typecheck demo clean runner-image
 
 install:
 	$(PYTHON) -m pip install -e ".[dev]"
 
 run:
 	$(PYTHON) -m mirag serve
+
+# Backend and PM, one process, one port — see src/mirag_manager. What used to be two
+# terminals (`mirag serve` and `mirag_pm serve`, each remembering its own port and token) is
+# one command; the agents stay exactly as isolated as they were standalone, only the transport
+# is shared.
+run-manager:
+	$(PYTHON) -m mirag_manager serve
 
 # The per-project execution sandbox `DockerCodeRunner` launches containers from
 # (MIRAG_EXECUTION_BACKEND=docker). Built once, by hand: never on a request path, since a cold

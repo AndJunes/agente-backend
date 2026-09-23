@@ -21,9 +21,8 @@ python -m mirag_pm.cli doctor     # loads every locale, checks the four indices
 python -m mirag_pm.cli coverage   # every document reachable by a skill
 ```
 
-In production it is a second service off the same image — see `mirag-pm` in
-`docker-compose.prod.yml`. CodeZard reaches it by service name, which means adding one entry
-to the gateway's registry:
+As its own service — see `mirag-pm` in `docker-compose.prod.yml`. CodeZard reaches it by
+service name, which means adding one entry to the gateway's registry:
 
 ```json
 {"name": "pm", "base_url": "http://mirag-pm:8000", "health_path": "/api/v1/health"}
@@ -31,6 +30,11 @@ to the gateway's registry:
 
 `health_path` has to be given: the gateway defaults to `/health` and this server does not
 serve that. Worth checking whether the backend's existing entry has the same omission.
+
+Or behind `mirag_manager`, alongside `mirag`, on one port — see `../mirag_manager`. Same
+container, same isolation (nothing about this package changes when it runs that way); only the
+gateway's registry entry changes, from a `base_url` of its own to a path prefix (`/pm`) on the
+manager's. CodeZard's `docker-compose.local.yml` runs it this way.
 
 ## Why two processes and not two modes
 

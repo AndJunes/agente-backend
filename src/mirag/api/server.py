@@ -11,7 +11,7 @@ import traceback
 import urllib.parse
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any
 
 from mirag import __version__
 from mirag.api.router import Router
@@ -43,8 +43,12 @@ SECURITY_HEADERS = {
 class ApiRequestHandler(BaseHTTPRequestHandler):
     """Routes requests to the container's use cases. One instance per request."""
 
-    container: ClassVar[Container]
-    router: ClassVar[Router]
+    container: Container
+    """Which container answers. Set once, at class-construction time, for a process serving one
+    agent (`build_server`, below) — or per-request, by a leading path segment, for one serving
+    several (`mirag_manager.server.ManagerRequestHandler`). Not a `ClassVar`: the second case is
+    exactly an instance overriding what would otherwise be a class-wide default."""
+    router: Router
     server_version = f"Mirag/{__version__}"
     protocol_version = "HTTP/1.1"
 
