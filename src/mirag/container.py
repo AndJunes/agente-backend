@@ -43,7 +43,7 @@ from mirag.projects.certification import ProjectCertifier
 from mirag.projects.dependencies import DependencyAnalyzer
 from mirag.projects.generator import ProjectGenerator
 from mirag.projects.packaging import Packager
-from mirag.retrieval.engine import RetrievalEngineFactory
+from mirag.retrieval.engine import CorpusLoader, RetrievalEngine, RetrievalEngineFactory
 from mirag.retrieval.symbols import SymbolIndexCache, SymbolIndexer
 from mirag.retrieval.vectors import VectorStoreFactory
 from mirag.self_knowledge.project_state import ProjectStateResponder, SystemFacts
@@ -212,7 +212,7 @@ def build_container(settings: Settings | None = None, model_builder: ModelBuilde
     # Only what is set is forwarded, so `I18n`'s own defaults stay the single definition of
     # where the bundled corpus is. Passing them unconditionally would put that path in two
     # places and invite the two to drift.
-    overrides = {name: value for name, value in (
+    overrides: dict[str, Any] = {name: value for name, value in (
         ("knowledge_dir", settings.knowledge_dir),
         ("locales_dir", settings.locales_dir),
         ("supported", settings.supported_locales),

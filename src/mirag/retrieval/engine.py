@@ -9,15 +9,15 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
-from pathlib import Path
 from dataclasses import dataclass
+from pathlib import Path
 
 from mirag.features.flags import FeatureGate
 from mirag.i18n.catalog import MessageCatalog
+from mirag.i18n.corpus_format import CorpusFormat
 from mirag.i18n.lexicon import Lexicon
 from mirag.i18n.registry import I18n
 from mirag.retrieval.context import ContextBuilder
-from mirag.i18n.corpus_format import CorpusFormat
 from mirag.retrieval.corpus import KnowledgeCorpus
 from mirag.retrieval.graph import ChunkGraph
 from mirag.retrieval.hybrid import HybridRetriever, VectorIndexCache

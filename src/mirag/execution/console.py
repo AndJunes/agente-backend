@@ -33,6 +33,7 @@ import shlex
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -127,7 +128,7 @@ class ProjectConsole:
             return [], "the command is empty"
         if len(text) > MAX_COMMAND_CHARS:
             return [], f"the command is longer than {MAX_COMMAND_CHARS} characters"
-        if os.name == "nt":
+        if sys.platform == "win32":
             # POSIX quoting reads a backslash as an escape, so `node src\server.js` would arrive
             # as `srcserver.js`. Every program allowed here takes forward slashes on Windows.
             text = text.replace("\\", "/")
@@ -172,7 +173,7 @@ class ProjectConsole:
 
         popen: dict[str, Any] = {"cwd": root, "stdin": subprocess.DEVNULL, "stdout": subprocess.PIPE,
                                  "stderr": subprocess.PIPE, "env": console_environment()}
-        if os.name != "nt":
+        if sys.platform != "win32":
             popen["start_new_session"] = True  # its own group, so the whole tree can be stopped
         try:
             process = subprocess.Popen(argv, **popen)
@@ -242,7 +243,9 @@ def _kill_tree(process: subprocess.Popen[bytes]) -> None:
     if process.poll() is not None:
         return
     try:
-        if os.name == "nt":
+        # `sys.platform` and not `os.name`: it is the form a type checker narrows on, so `killpg`
+        # is only looked up on the platforms that have it.
+        if sys.platform == "win32":
             subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True,
                            check=False, timeout=10)
         else:

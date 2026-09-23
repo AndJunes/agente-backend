@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import http.client
 import json
 import socket
@@ -113,8 +114,16 @@ class _Interrupt:
     EBADF in THIS thread rather than reaching into a stranger's file.
     """
 
-    __slots__ = ("_deadline", "_seconds", "_lock", "_socket", "_response", "_done", "_thread",
-                 "fired")
+    __slots__ = (
+        "_deadline",
+        "_done",
+        "_lock",
+        "_response",
+        "_seconds",
+        "_socket",
+        "_thread",
+        "fired",
+    )
 
     def __init__(self, deadline: Deadline, seconds: float) -> None:
         self._deadline = deadline
@@ -171,15 +180,13 @@ class _Interrupt:
         with self._lock:
             self.fired, sock, response = reason, self._socket, self._response
         if sock is not None:
-            try:
+            # already closed, or never connected: nothing left to end
+            with contextlib.suppress(OSError):
                 sock.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass  # already closed, or never connected: nothing left to end
         elif response is not None:
-            try:
+            # a double may close in any way it likes
+            with contextlib.suppress(Exception):
                 response.close()
-            except Exception:  # noqa: BLE001 — a double may close in any way it likes
-                pass
 
 
 def _watched_opener(interrupt: _Interrupt, opener: Opener) -> Opener:

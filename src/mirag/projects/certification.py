@@ -16,7 +16,7 @@ import re
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, ClassVar
 
 from mirag.core.timing import Deadline, Stopwatch
 from mirag.evidence.properties import EvidenceBuilder, EvidenceRow
@@ -292,7 +292,7 @@ class StatusDeriver:
     """Derives the STATUS only from what was observed. Read top to bottom: the first
     condition that holds wins."""
 
-    SUPERSEDES = {"tests_after_repair": "tests"}
+    SUPERSEDES: ClassVar[dict[str, str]] = {"tests_after_repair": "tests"}
     """A phase that re-runs an earlier one under a different name.
 
     `tests_after_repair` is the whole list today. It exists because the trace should show that
@@ -529,9 +529,9 @@ class ProjectCertifier:
         # With a missing external dependency nothing can run, and that is NOT a project
         # failure. It is a ceiling: VALIDATED, saying exactly why.
         if limits:
-            missing = ", ".join(sorted({f.subject for f in findings if f.kind == "missing_dependency"}))
-            note(Phase("execution", PhaseStatus.LIMITED, t("cert.execution.limited", missing=missing)))
-            return Certificate(ProjectStatus.VALIDATED, t("cert.reason.validated", missing=missing),
+            missing_deps = ", ".join(sorted({f.subject for f in findings if f.kind == "missing_dependency"}))
+            note(Phase("execution", PhaseStatus.LIMITED, t("cert.execution.limited", missing=missing_deps)))
+            return Certificate(ProjectStatus.VALIDATED, t("cert.reason.validated", missing=missing_deps),
                                tuple(phases), tuple(findings), {}, repairs=tuple(repairs),
                                interpreter=interpreter, project=project)
 

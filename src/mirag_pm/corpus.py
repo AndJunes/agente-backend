@@ -33,7 +33,6 @@ from pathlib import Path
 
 from mirag.i18n.corpus_format import CorpusFormat
 from mirag.retrieval.corpus import Chunk, CorpusParser, KnowledgeCorpus
-
 from mirag_pm.frontmatter import Document, parse
 from mirag_pm.paths import DOCUMENTS_LOCALE
 

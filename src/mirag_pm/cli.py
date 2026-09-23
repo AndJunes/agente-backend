@@ -9,10 +9,8 @@ from __future__ import annotations
 
 import argparse
 import sys
-from pathlib import Path
 
 from mirag.i18n.corpus_format import CorpusFormat
-
 from mirag_pm.corpus import DOMAIN_FOLDER, PmCorpus, domain_counts
 from mirag_pm.paths import DOCUMENTS_LOCALE, KNOWLEDGE_DIR, LOCALES_DIR, SKILLS_DIR
 

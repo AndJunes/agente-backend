@@ -35,7 +35,7 @@ QUESTIONS = [
     {"id": "outcome", "text": "¿Qué haría que esto valiera la pena?"},
 ]
 
-PLAN = {
+PLAN: dict[str, Any] = {
     "purpose": (
         "Una herramienta para que una recepcionista registre y consulte las reservas de las "
         "salas de reunión, de modo que dejen de pisarse y se vea de un vistazo qué hay hoy."

@@ -8,7 +8,6 @@ emits a closing ``done`` event with the panels the page draws.
 from __future__ import annotations
 
 import threading
-
 from collections.abc import Callable
 from typing import Any
 

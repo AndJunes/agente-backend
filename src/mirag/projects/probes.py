@@ -32,7 +32,7 @@ from __future__ import annotations
 import json
 import re
 import secrets
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 PROBE_TIMEOUT_S = 20
@@ -61,7 +61,7 @@ def _tokens(name: str) -> list[str]:
     return [t for t in re.split(r"[_\-\s]+|(?<=[a-z])(?=[A-Z])", name) if t]
 
 
-def sample_for(entity: object, fields: object) -> tuple[dict[str, Any], dict[str, Any]]:
+def sample_for(entity: object, fields: Iterable[object] | None) -> tuple[dict[str, Any], dict[str, Any]]:
     """A payload the project under test might plausibly accept, built from its own blueprint.
 
     The blueprint has always collected ``entity`` and ``fields`` and nothing has ever read
