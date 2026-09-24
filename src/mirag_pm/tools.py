@@ -27,7 +27,6 @@ from mirag.i18n.catalog import MessageCatalog
 from mirag.retrieval.ranking import Bm25Ranker
 from mirag.retrieval.search import KnowledgeSearch
 from mirag.tools.registry import FunctionTool, ToolRegistry
-
 from mirag_pm.skills import SkillLibrary
 
 SPELLING = re.compile(r"is(?=[ae]\b|ing\b|ed\b|ation\b)")

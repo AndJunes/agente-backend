@@ -17,8 +17,9 @@ Este documento explica cómo está organizado el código para cumplir esa promes
    y benchmarks; `ContextBuilder` es el único lugar que decide qué entra en un prompt.
 4. **Offline por defecto.** El `LLMGateway` se niega a llamar a un modelo real salvo que
    `MIRAG_OFFLINE=0`. Las demos usan un modelo guionado y determinista, y se etiquetan SIMULADO.
-5. **Runtime de biblioteca estándar.** El núcleo tiene cero dependencias de terceros (lo verifica
-   `tests/architecture`). La capa opcional de Stellar declara `stellar-sdk` como extra.
+5. **Runtime de biblioteca estándar.** El núcleo tiene cero dependencias de terceros
+   (`dependencies = []` en `pyproject.toml`). La capa opcional de Stellar declara `stellar-sdk`
+   como extra.
 6. **Todo texto que ve el usuario está localizado.** Hoy hay dos locales (`en`, `es`), con una
    carpeta cada uno.
 
@@ -42,10 +43,10 @@ Este documento explica cómo está organizado el código para cumplir esa promes
    opcional: integrations/blockchain/ (lazy)   fuera de producción: experimental/
 ```
 
-Las dependencias solo apuntan hacia abajo. `tests/architecture/test_architecture.py` lo hace
-cumplir: el dominio nunca importa el pipeline, la API, el container ni la presentación; `core`
-no importa nada más de Mirag; nada importa `experimental`; la capa de blockchain solo la importa
-el container, de forma lazy.
+Las dependencias solo apuntan hacia abajo: el dominio nunca importa el pipeline, la API, el
+container ni la presentación; `core` no importa nada más de Mirag; nada importa `experimental`;
+la capa de blockchain solo la importa el container, de forma lazy. Un test sobre el AST lo hacía
+cumplir; se fue con `tests/`, así que hoy la regla se sostiene por revisión.
 
 ## El camino de un request
 

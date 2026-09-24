@@ -232,3 +232,17 @@ pedirlo todo. Si algún día hay varios consumidores con permisos distintos, se 
 **Cuando llegue el agente de QA volverá a haber ejecución**, y con ella el problema grande,
 pero ya en su propio servicio, que es donde se puede encerrar de verdad. `MIRAG_EXECUTION` es
 la costura por la que entrará.
+
+Parte de esa costura ya existe, solo para el despliegue **sin contenedor**:
+`MIRAG_EXECUTION_BACKEND=docker` (ver [configuration.md](configuration.md)) hace que
+`mirag serve` — corriendo directo en un host, como en desarrollo local — lance cada prueba
+dentro de su propio contenedor descartable, aislado de red y con techo de recursos, en vez de
+un subproceso plano. Necesita que ese host tenga Docker alcanzable, y es opcional, apagado por
+defecto.
+
+Eso deliberadamente **no** está conectado al contenedor endurecido de arriba. Esa imagen ya
+corre con `cap_drop: ALL` y no publica puertos; darle acceso al socket de Docker para que
+lance contenedores hermanos le daría acceso equivalente a root sobre el host que la corra,
+deshaciendo cada fila de la tabla. El "servicio propio" que ya pedía esta sección sigue siendo
+la forma correcta para ese caso — un servicio aparte, hecho a propósito, con su propio acceso
+contenido a Docker, alcanzado por red en vez de a través del socket de este contenedor.

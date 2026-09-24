@@ -7,8 +7,8 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
+from mirag.execution.backend import CodeExecutionBackend
 from mirag.execution.calculator import SafeCalculator
-from mirag.execution.runner import CodeRunner
 from mirag.retrieval.search import KnowledgeSearch
 from mirag.tools.registry import FunctionTool, ToolOutput, ToolRegistry
 
@@ -28,7 +28,7 @@ def _string_parameter(name: str, description: str) -> dict[str, Any]:
 
 def build_default_tools(
     search: KnowledgeSearch,
-    runner: CodeRunner,
+    runner: CodeExecutionBackend,
     calculator: SafeCalculator | None = None,
     now: Callable[[], datetime] = datetime.now,
 ) -> ToolRegistry:

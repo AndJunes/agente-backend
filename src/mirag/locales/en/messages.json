@@ -169,7 +169,7 @@
     },
     "problem": {
       "no_files": "the project has no files",
-      "no_tests": "there is no .py file under tests/, which is where the harness looks",
+      "no_tests": "there is no test file in the project's language (under tests/ for Python and Node.js, which is where the harness looks)",
       "no_code": "there is no code file",
       "missing_init": "{package}/ has no __init__.py"
     },
@@ -186,22 +186,26 @@
       "broken": "{count} broken imports",
       "limited": "{count} dependencies not installed here",
       "ok": "the import graph resolves entirely",
-      "repaired": "repaired on attempt {attempt}: every import resolves"
+      "repaired": "repaired on attempt {attempt}: every import resolves",
+      "resolved_after_install": "after installing, the import graph resolves entirely"
     },
     "repair": {
       "imports": "{count} files touched because of broken imports",
       "syntax": "{count} files touched because they do not compile",
-      "tests": "{count} files touched because of failing tests"
+      "tests": "{count} files touched because of failing tests",
+      "dependencies": "{count} files touched because of missing dependencies"
     },
     "execution": {
       "limited": "it does not run here: {missing} is missing",
-      "deadline": "not run: the time this request was given ran out",
       "deadline": "not run: the time this request was given ran out",
       "disabled": "not run: execution is switched off (MIRAG_EXECUTION=off). The tests are delivered for the QA agent"
     },
     "documented": {
       "fails": "`{command}` fails: {header}",
       "ok": "`{command}` runs without errors"
+    },
+    "tests": {
+      "no_harness": "not run: Mirag cannot run {language} tests on this machine. The tests are delivered in the project's own language, for whoever can run them"
     },
     "crud": {
       "skipped": "the project does not expose a server factory (create_server): there is no API to exercise"
@@ -213,6 +217,11 @@
       "syntax": "it does not compile: {detail}",
       "broken_imports": "{count} broken imports remain: {detail}",
       "validated": "the code compiles and its import graph resolves, but it could not run: {missing} is not installed on this machine. The project may be fine; here there is no evidence that it is."
+    },
+    "dependencies": {
+      "installed": "installed {count} declared dependencies: {detail}",
+      "failed": "the dependencies could not be installed: {reason}",
+      "refused": "{count} lines of requirements.txt are not a package with a version and are not passed to the installer: {detail}"
     }
   },
   "derive": {
@@ -235,6 +244,8 @@
   "generation": {
     "no_plan": "the model did not return a usable plan",
     "tests_added": "the plan had no tests: {count} files were added",
+    "test_command_replaced": "the test command '{old}' cannot run here: '{new}' is used instead",
+    "foreign_tests_dropped": "{count} test files were in another language than the project and were dropped: {names}",
     "specified": "{name} · {framework} · {count} files planned",
     "call_cap": "cap of {cap} calls reached: this group was not generated",
     "group_files": "{count} files",

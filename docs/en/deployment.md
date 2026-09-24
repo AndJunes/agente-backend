@@ -232,3 +232,16 @@ everything. If one day there are several consumers with different permissions, i
 **When the QA agent arrives, execution comes back**, and with it the big problem - but in its
 own service, which is where it can really be locked up. `MIRAG_EXECUTION` is the seam it will
 come in through.
+
+Part of that seam exists now, for the **bare-metal** deployment only: `MIRAG_EXECUTION_BACKEND=docker`
+(see [configuration.md](configuration.md)) makes `mirag serve` — run directly on a host, as it is
+in local development — launch each probe inside its own disposable, network-isolated,
+resource-capped container instead of a plain subprocess. It requires that host to have Docker
+reachable and is opt-in, off by default.
+
+That is deliberately **not** wired into the hardened container above. This image already runs
+`cap_drop: ALL` and publishes no ports; giving it a Docker socket so it could launch sibling
+containers would hand it root-equivalent access to whatever host runs it, undoing every row in
+the table. The "own service" this section already called for is still the right shape for that
+case — a separate, purpose-built service with its own contained Docker access, reached over the
+network rather than through this container's socket.

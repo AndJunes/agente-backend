@@ -41,7 +41,7 @@ class Deadline:
     moments and answered by doing the same thing.
     """
 
-    __slots__ = ("_limit", "_end", "cancelled")
+    __slots__ = ("_end", "_limit", "cancelled")
 
     def __init__(self, limit_s: float = 0.0, cancelled: threading.Event | None = None) -> None:
         self._limit = limit_s if limit_s > 0 else 0.0

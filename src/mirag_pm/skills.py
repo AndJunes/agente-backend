@@ -23,7 +23,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from mirag.retrieval.corpus import Chunk
-
 from mirag_pm.frontmatter import FrontmatterError, parse
 
 SKILL_BOX = "SK · Skills"

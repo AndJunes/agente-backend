@@ -8,8 +8,13 @@ request: a project goes to its own artifact, with its own id.
 
 from __future__ import annotations
 
-from mirag.core.errors import (BudgetExceededError, ModelUnreachableError, OfflineModeError,
-                               RateLimitedError, RunStoppedError)
+from mirag.core.errors import (
+    BudgetExceededError,
+    ModelUnreachableError,
+    OfflineModeError,
+    RateLimitedError,
+    RunStoppedError,
+)
 from mirag.core.timing import Stopwatch
 from mirag.llm.gateway import LLMGateway
 from mirag.pipeline.knowledge_stage import PreparedRequest

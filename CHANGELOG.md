@@ -36,6 +36,42 @@ Brings in the deployment work done on `main` (PR #1) on the old flat layout, por
   `docs/{en,es}/deployment.md`.
 - The earlier variable names `MIRAG_MODELO`, `LIMITE_USD` and `MIRAG_EJECUCION` are read when
   the new name is absent.
+- `mirag/projects/languages.py`: one table of languages (Python, JavaScript, TypeScript, Go,
+  Java, Kotlin, Rust, Ruby, PHP, C#, C, C++, Swift, Dart, Elixir, Scala, Haskell, Clojure, Lua,
+  Perl, R, Julia) instead of Python assumed in four places. It drives language detection, which
+  file counts as a test, the default test command and the extensions a project may contain.
+  Adding a language is one row.
+- A `node:test` harness (`probes.node_tests_probe`): a Node.js project's tests are executed and
+  each one becomes a `TEST:<id>:PASS|FAIL` marker, like the `unittest` probe does for Python.
+- The console (`MIRAG_CONSOLE`, off by default): `POST /api/v1/artifacts/{id}/exec` runs one
+  command — `node`, `npm`, `npx`, `python3`, `python`, `pytest` or `curl`, no shell — in a
+  per-artifact copy of a delivered project and streams stdout, stderr and the exit as SSE. A
+  server can stay running while another command probes it; hanging up stops the whole process
+  tree. Behind the token like `/chat` and `/download`, capped in time (`MIRAG_CONSOLE_TIMEOUT_S`)
+  and output, with the same stripped environment the test probes get. It is not a sandbox: it
+  runs as this user, with this machine's network.
+
+### Fixed
+
+- A Node.js plan can no longer keep test files in another language: `drop_foreign_tests` removes
+  `tests/__init__.py` and `tests/test_*.py` from a JavaScript plan before it is completed (a
+  TypeScript project keeps its JavaScript, a Kotlin one its Java). A Python-flavoured contract
+  made the model plan them anyway.
+- The contract tells a Node.js model to start the server unconditionally in the file `npm start`
+  runs. Guarding start-up with `import.meta.url === file://${process.argv[1]}` is always false on
+  Windows, so a generated `npm start` exited 0 without ever listening — something no test caught
+  and the console made visible the first time it ran one.
+
+- Tests follow the project's language. `complete_plan` added `unittest` files whenever no
+  `tests/*.py` existed — to a Node.js plan whose JavaScript tests were already there — and the
+  structure check only accepted a `.py` under `tests/`, so an Express project came out `FAILED`
+  on `unittest_loader__FailedTest_tests_test_HTTPServer`. Only a language with a known layout
+  gets tests added, in that language; the rest is left to `validate_plan` to report.
+- A language Mirag cannot run here (Go, Rust, Java…) is delivered with its tests in its own
+  language and reported `GENERATED` with an `execution` phase `skipped`, never `EXECUTED`.
+- `test_command` for a Node.js project is normalised from `npm test` (no `npm` here) to
+  `node --test tests/`, and reported as a plan step.
+- The project file allow-list no longer rejects the first `.go`, `.rs`, `.java`… file.
 
 ## [2.0.0] - 2026-09-18
 

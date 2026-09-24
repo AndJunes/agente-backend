@@ -68,9 +68,9 @@ src/mirag/integrations/blockchain/
 scripts/blockchain_agent_demo.py
 ```
 
-Tests: `tests/unit/integrations/test_blockchain.py` (no SDK, no network: the lock, the border,
-the secrets, the models) and `tests/integration/test_blockchain_network.py` (skipped without the
-SDK; the tests marked `network` also need `MIRAG_BLOCKCHAIN_NETWORK_TESTS=1`).
+Checks: the tests that covered this layer (its lock, its border, its secrets, its models, and a
+suite against the real network) were removed with the rest of `tests/`.
+`scripts/blockchain_agent_demo.py` is the manual way to exercise it.
 
 ---
 
