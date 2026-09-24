@@ -128,6 +128,60 @@ class Settings:
     (running them is the QA agent's job) and the verdict is ``not_executed`` - never a pass,
     never a fail. The machinery stays whole: the demos and the benchmarks switch it on."""
 
+    console: bool = False
+    """Let a caller run commands against a delivered project (``POST .../artifacts/{id}/exec``).
+
+    OFF unless asked for, and it is not the same switch as `execution`. Verification runs code
+    Mirag chose, against a fixed probe. This runs whatever command the caller types, on this
+    machine, in a copy of the project: an interpreter and a package manager on demand. That is
+    exactly what a person needs to see a generated server start, and exactly what must not be
+    reachable by anybody who happens to find the port — so it needs the flag AND the token."""
+
+    console_timeout_s: int = 600
+    """How long one console command may run before it is stopped. A server left running is the
+    normal case, so this is minutes, not the 30 seconds a test gets."""
+
+    install_dependencies: bool = True
+    """Install what a generated project declares, instead of reporting that it cannot run here.
+
+    ON by default, and that is not the exception to the rest of these defaults it looks like:
+    it can only ever happen inside `execution`, which is OFF. A deployment that has not asked
+    for code to run never reaches this; one that HAS asked is a deployment that wants the
+    tests to actually mean something, and `fastapi is not installed on this machine` is not an
+    answer that deployment wanted. Only `requirements.txt`, only pinned package names, and
+    only into a directory of their own — see `projects/installation.py`."""
+
+    install_timeout_s: int = 300
+    """Wall clock for ONE install. The run's own deadline is the real bound; this stops a
+    single wheel that will not build from eating all of it."""
+
+    max_repairs: int = 3
+    """Repair attempts PER MOTIVE (syntax, imports, failing tests), spent by the convergence
+    loop. `0` delivers whatever the generator produced, unrepaired."""
+
+    execution_backend: str = "subprocess"
+    """Where a probe actually runs. ``"subprocess"``: the host, allow-listed and stripped down
+    (``execution/runner.py``) - today's behaviour, unchanged for anyone who has not opted in.
+    ``"docker"``: a disposable, capped, network-isolated container per probe
+    (``execution/docker_runner.py``), built from ``docker/runner.Dockerfile``. Anything else
+    falls back to ``"subprocess"`` rather than raising - a typo here should not take execution
+    down, the same lenient convention ``vector_backend`` already uses.
+
+    Defaults to the host: Docker Desktop is not guaranteed to be on every machine this agent
+    runs on, the same reasoning behind every other safety-relevant default here."""
+
+    docker_image: str = "mirag-runner:latest"
+    docker_memory: str = "512m"
+    docker_cpus: str = "1.0"
+    docker_pids_limit: int = 128
+    """Ceilings for ONE disposable probe container - tighter than the long-lived `mirag`
+    service's own (1g / 1.5 cpus / 256 pids in docker-compose.yml): this runs one bounded test
+    invocation, not a server absorbing concurrent requests."""
+
+    docker_cli_timeout_s: int = 10
+    """Seconds allowed for the `docker` CLI itself (the image-existence check, forced cleanup)
+    - separate from `code_timeout_s`, which bounds what runs INSIDE the container."""
+
     knowledge_dir: Path | None = None
     """Where the corpus lives. ``None`` means the one bundled with the package.
 
@@ -176,6 +230,10 @@ class Settings:
         return self.data_dir / "traces"
 
     @property
+    def workspaces_dir(self) -> Path:
+        return self.data_dir / "workspaces"
+
+    @property
     def embeddings_dir(self) -> Path:
         return self.data_dir / "embeddings"
 
@@ -221,6 +279,17 @@ class Settings:
             vector_backend=(env.get("MIRAG_VECTOR_BACKEND") or "local").strip().lower(),
             code_timeout_s=_int(env, "MIRAG_CODE_TIMEOUT_S", 30),
             execution=_flag(env, "MIRAG_EXECUTION", False),
+            console=_flag(env, "MIRAG_CONSOLE", False),
+            console_timeout_s=_int(env, "MIRAG_CONSOLE_TIMEOUT_S", 600),
+            install_dependencies=_flag(env, "MIRAG_INSTALL_DEPENDENCIES", True),
+            install_timeout_s=_int(env, "MIRAG_INSTALL_TIMEOUT_S", 300),
+            max_repairs=_int(env, "MIRAG_MAX_REPAIRS", 3),
+            execution_backend=(env.get("MIRAG_EXECUTION_BACKEND") or "subprocess").strip().lower(),
+            docker_image=(env.get("MIRAG_DOCKER_IMAGE") or "").strip() or "mirag-runner:latest",
+            docker_memory=(env.get("MIRAG_DOCKER_MEMORY") or "").strip() or "512m",
+            docker_cpus=(env.get("MIRAG_DOCKER_CPUS") or "").strip() or "1.0",
+            docker_pids_limit=_int(env, "MIRAG_DOCKER_PIDS_LIMIT", 128),
+            docker_cli_timeout_s=_int(env, "MIRAG_DOCKER_CLI_TIMEOUT_S", 10),
             knowledge_dir=Path(knowledge_dir) if knowledge_dir else None,
             locales_dir=Path(locales_dir) if locales_dir else None,
             supported_locales=locales or None,

@@ -17,8 +17,9 @@ This document explains how the code base is organised to keep that promise.
    and by the benchmarks; `ContextBuilder` is the only place that decides what enters a prompt.
 4. **Offline by default.** The `LLMGateway` refuses to reach a real model unless
    `MIRAG_OFFLINE=0`. Demos use a deterministic scripted model and are labelled SIMULATED.
-5. **Standard library runtime.** The core has zero third-party dependencies (checked by
-   `tests/architecture`). The optional Stellar layer declares `stellar-sdk` as an extra.
+5. **Standard library runtime.** The core has zero third-party dependencies
+   (`dependencies = []` in `pyproject.toml`). The optional Stellar layer declares `stellar-sdk`
+   as an extra.
 6. **Every user-facing string is localised.** Two locales today (`en`, `es`), one folder each.
 
 ## Layers
@@ -41,10 +42,10 @@ This document explains how the code base is organised to keep that promise.
    optional: integrations/blockchain/ (lazy)   not in production: experimental/
 ```
 
-Dependencies only point downwards. `tests/architecture/test_architecture.py` enforces it: the
-domain never imports the pipeline, the API, the container or the presentation; `core` imports
-nothing else from Mirag; nothing imports `experimental`; the blockchain layer is only imported
-lazily by the container.
+Dependencies only point downwards: the domain never imports the pipeline, the API, the
+container or the presentation; `core` imports nothing else from Mirag; nothing imports
+`experimental`; the blockchain layer is only imported lazily by the container. An AST test used
+to enforce this; it went with `tests/`, so today the rule holds by review.
 
 ## The request path
 

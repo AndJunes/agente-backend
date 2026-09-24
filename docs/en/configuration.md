@@ -21,6 +21,10 @@ repository root (copy `.env.example`). Existing environment variables always win
 | `MIRAG_SYMBOLS_ROOT` | the `src` folder | The code base the symbol index reads. |
 | `MIRAG_VECTOR_BACKEND` | `local` | `local` (character n-grams, free) or `openrouter` (real embeddings, falls back to local). |
 | `MIRAG_CODE_TIMEOUT_S` | `30` | Timeout of each code execution. The executed code receives no credential: only `PATH`, `HOME`, locale and temp variables. |
+| `MIRAG_EXECUTION_BACKEND` | `subprocess` | Where a probe actually runs. `subprocess`: the host, allow-listed and stripped down (above). `docker`: a disposable, network-isolated container per probe, built from `docker/runner.Dockerfile` with a curated set of libraries baked in — build it once with `make runner-image` first. Anything else falls back to `subprocess`. |
+| `MIRAG_DOCKER_IMAGE` | `mirag-runner:latest` | Image `DockerCodeRunner` launches containers from. |
+| `MIRAG_DOCKER_MEMORY` / `MIRAG_DOCKER_CPUS` / `MIRAG_DOCKER_PIDS_LIMIT` | `512m` / `1.0` / `128` | Resource ceiling for ONE disposable probe container — deliberately tighter than the long-lived `mirag` service's own limits in `docker-compose.yml`, since this bounds a single test invocation. |
+| `MIRAG_DOCKER_CLI_TIMEOUT_S` | `10` | Seconds allowed for the `docker` CLI itself (image check, forced cleanup) — separate from `MIRAG_CODE_TIMEOUT_S`, which bounds what runs *inside* the container. |
 | `MIRAG_HTTP_LOG` | - | `1` to print the HTTP access log. |
 
 ## Feature flags

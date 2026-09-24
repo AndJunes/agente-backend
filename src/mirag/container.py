@@ -19,7 +19,10 @@ from mirag.agent.loop import AgentLoop
 from mirag.api.chat_service import ChatService
 from mirag.core.settings import Settings
 from mirag.evidence.claims import ClaimAuditor
+from mirag.execution.backend import CodeExecutionBackend
 from mirag.execution.calculator import SafeCalculator
+from mirag.execution.console import ProjectConsole
+from mirag.execution.docker_runner import DockerCodeRunner
 from mirag.execution.interpreters import InterpreterRegistry
 from mirag.execution.runner import CodeRunner
 from mirag.execution.syntax import SyntaxChecker
@@ -30,17 +33,23 @@ from mirag.observability.tracing import TraceWriter
 from mirag.offline.demos import DemoCatalog
 from mirag.paths import FEATURE_GAINS_FILE, WEB_DIR
 from mirag.pipeline.code_stage import CodeDeliveryStage
-from mirag.pipeline.prompts import SYSTEM_PROMPT
 from mirag.pipeline.delivery import OutputWriter
 from mirag.pipeline.knowledge_stage import KnowledgeStage
 from mirag.pipeline.orchestrator import QuestionPipeline
 from mirag.pipeline.project_stage import ProjectDeliveryStage
+from mirag.pipeline.prompts import SYSTEM_PROMPT
 from mirag.projects.artifacts import ArtifactRegistry
 from mirag.projects.certification import ProjectCertifier
-from mirag.projects.dependencies import DependencyAnalyzer
+from mirag.projects.dependencies import DependencyAnalyzer, ProbeArgv
 from mirag.projects.generator import ProjectGenerator
+from mirag.projects.installation import (
+    NO_SANDBOX_REASON,
+    DependencyInstaller,
+    DockerInstaller,
+    NullInstaller,
+)
 from mirag.projects.packaging import Packager
-from mirag.retrieval.engine import RetrievalEngineFactory
+from mirag.retrieval.engine import CorpusLoader, RetrievalEngine, RetrievalEngineFactory
 from mirag.retrieval.symbols import SymbolIndexCache, SymbolIndexer
 from mirag.retrieval.vectors import VectorStoreFactory
 from mirag.self_knowledge.project_state import ProjectStateResponder, SystemFacts
@@ -71,7 +80,7 @@ class Container:
     i18n: I18n
     gate: FeatureGate
     interpreters: InterpreterRegistry
-    runner: CodeRunner
+    runner: CodeExecutionBackend
     syntax: SyntaxChecker
     engines: RetrievalEngineFactory
     symbol_cache: SymbolIndexCache
@@ -98,6 +107,12 @@ class Container:
     cannot express that through `/chat`, whose request body has room for a question and
     nothing else.
     """
+
+    console: ProjectConsole | None = None
+    """Runs a caller's commands against a delivered project, or ``None``.
+
+    Present in every container and switched on by `Settings.console`; the HTTP layer only
+    exposes it on an agent that produces projects at all (see `build_router`)."""
 
     tools_builder: Callable[[RetrievalEngine, str], ToolRegistry] | None = None
     """How this agent's tools are built. ``None`` means the backend's own set.
@@ -153,6 +168,7 @@ class Container:
             "version": __version__,
             "offline": self.settings.offline,
             "execution": self.settings.execution,
+            "execution_backend": self.settings.execution_backend,
             "token_required": bool(self.settings.api_token),
             "model": self.settings.model,
             "locales": list(self.i18n.supported),
@@ -172,6 +188,34 @@ class Container:
                     "wallet": None, "last_payment": None, "links": {}}
 
 
+def _docker_probe_argv(settings: Settings) -> ProbeArgv:
+    """How `DependencyAnalyzer` checks whether an external import is importable, when the
+    docker backend is selected: inside the SAME image the tests actually run in, not the host's
+    Python. Without this, a curated library the runner image genuinely has would still be
+    reported as a `missing_dependency` LIMIT, because the analyzer would be asking the wrong
+    interpreter.
+
+    Its own hardening stanza, scaled down from `DockerCodeRunner`'s: this is a sub-second
+    `importlib.util.find_spec` check, not a test run, so tighter ceilings are enough and starting
+    it faster matters more than for a probe that already has real work to do.
+    """
+    def build(script: str, dependencies: str = "") -> list[str]:
+        # The volume of just-installed packages, read-only, when there is one. Without it the
+        # probe would keep answering "not installed" about packages that now are, and the
+        # install would have lifted nothing.
+        packages = (["-v", f"{dependencies}:/deps:ro", "-e", "PYTHONPATH=/deps"]
+                    if dependencies else [])
+        return [
+            "docker", "run", "--rm", "--network", "none",
+            "--security-opt", "no-new-privileges", "--cap-drop", "ALL", "--read-only",
+            "--tmpfs", "/tmp:rw,noexec,nosuid,size=32m",
+            "--pids-limit", "64", "--memory", "256m",
+            "--user", "10001:10001", "-e", "HOME=/tmp", *packages,
+            settings.docker_image, "python3", "-c", script,
+        ]
+    return build
+
+
 def build_container(settings: Settings | None = None, model_builder: ModelBuilder | None = None,
                     gains: GainsRepository | None = None, corpus_loader: CorpusLoader | None = None,
                     tools_builder: Callable[[RetrievalEngine, str], ToolRegistry] | None = None) -> Container:
@@ -179,7 +223,7 @@ def build_container(settings: Settings | None = None, model_builder: ModelBuilde
     # Only what is set is forwarded, so `I18n`'s own defaults stay the single definition of
     # where the bundled corpus is. Passing them unconditionally would put that path in two
     # places and invite the two to drift.
-    overrides = {name: value for name, value in (
+    overrides: dict[str, Any] = {name: value for name, value in (
         ("knowledge_dir", settings.knowledge_dir),
         ("locales_dir", settings.locales_dir),
         ("supported", settings.supported_locales),
@@ -187,12 +231,40 @@ def build_container(settings: Settings | None = None, model_builder: ModelBuilde
     i18n = I18n(settings.default_locale, **overrides)
     gate = FeatureGate(settings.env, gains or GainsRepository(FEATURE_GAINS_FILE))
     interpreters = InterpreterRegistry()
-    runner = CodeRunner(interpreters, timeout_s=settings.code_timeout_s, enabled=settings.execution)
+    runner: CodeExecutionBackend
+    installer: DependencyInstaller
+    # The installer and the runner are chosen together and never separately, and only one of
+    # the two backends has an installer at all.
+    #
+    # Installing a generated project's dependencies means fetching third-party code a model
+    # chose. There is exactly one place that belongs — the disposable container that was
+    # already going to run that project's tests — so the packages go into a Docker volume
+    # mounted into it, and nothing lands on the host or in this checkout. A deployment
+    # running probes as host subprocesses has no such place, so it gets no installer and
+    # says why; the project keeps the honest ceiling it had.
+    if settings.execution_backend == "docker":
+        runner = DockerCodeRunner(
+            image=settings.docker_image, timeout_s=settings.code_timeout_s,
+            enabled=settings.execution, docker_timeout_s=settings.docker_cli_timeout_s,
+            memory=settings.docker_memory, cpus=settings.docker_cpus,
+            pids_limit=settings.docker_pids_limit)
+        analyzer = DependencyAnalyzer(interpreters, probe_argv=_docker_probe_argv(settings))
+        installer = DockerInstaller(
+            image=settings.docker_image, timeout_s=settings.install_timeout_s,
+            enabled=settings.install_dependencies,
+            docker_timeout_s=settings.docker_cli_timeout_s)
+    else:
+        runner = CodeRunner(interpreters, timeout_s=settings.code_timeout_s, enabled=settings.execution)
+        analyzer = DependencyAnalyzer(interpreters)
+        installer = NullInstaller(NO_SANDBOX_REASON)
     syntax = SyntaxChecker(runner)
     vectors = VectorStoreFactory(settings.vector_backend, settings.openrouter_api_key, settings.offline,
                                  settings.embeddings_dir)
     artifacts = ArtifactRegistry(settings.artifacts_dir)
     artifacts.sweep_orphans()  # without this the folder grows without a ceiling
+    console = ProjectConsole(settings.workspaces_dir, enabled=settings.console,
+                             timeout_s=settings.console_timeout_s)
+    console.sweep()  # copies with a `node_modules` in them are the biggest thing on this disk
     gateways = LLMGatewayFactory(settings, model_builder) if model_builder else LLMGatewayFactory(settings)
     return Container(
         settings=settings,
@@ -208,7 +280,9 @@ def build_container(settings: Settings | None = None, model_builder: ModelBuilde
         traces=TraceWriter(settings.traces_dir / "pipeline.jsonl"),
         gateways=gateways,
         generator=ProjectGenerator(interpreters),
-        certifier=ProjectCertifier(runner, syntax, DependencyAnalyzer(interpreters)),
+        certifier=ProjectCertifier(runner, syntax, analyzer, installer=installer,
+                                   max_repairs=settings.max_repairs),
         packager=Packager(),
+        console=console,
         tools_builder=tools_builder,
     )

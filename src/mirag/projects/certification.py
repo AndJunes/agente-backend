@@ -13,23 +13,45 @@ THE DISTINCTION THAT HOLDS EVERYTHING UP
 from __future__ import annotations
 
 import re
-
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, ClassVar
 
 from mirag.core.timing import Deadline, Stopwatch
 from mirag.evidence.properties import EvidenceBuilder, EvidenceRow
-from mirag.execution.runner import CodeRunner
+from mirag.execution.backend import CodeExecutionBackend
 from mirag.execution.syntax import SyntaxChecker
 from mirag.execution.verdict import ExecutionResult, ExecutionStatus
 from mirag.i18n.catalog import MessageCatalog
-from mirag.projects import probes
+from mirag.projects import languages, probes
+from mirag.projects.convergence import (
+    MAX_ATTEMPTS,
+    Convergence,
+    ConvergenceLoop,
+    Repairer,
+    Round,
+    Verdict,
+)
 from mirag.projects.dependencies import DependencyAnalyzer, Finding, Severity
+from mirag.projects.installation import DependencyInstaller, InstallReport, NullInstaller
 from mirag.projects.model import Project
 
-MAX_REPAIRS = 2
+__all__ = [
+    "MAX_REPAIRS",
+    "Certificate",
+    "Phase",
+    "PhaseStatus",
+    "ProjectCertifier",
+    "ProjectStatus",
+    "Repairer",
+    "StatusDeriver",
+    "failures_as_findings",
+    "find_entrypoint",
+    "validate_structure",
+]
+
+MAX_REPAIRS = MAX_ATTEMPTS
 """Repair attempts PER MOTIVE: syntax, imports, failing tests.
 
 Per motive, and that is the fix. The three loops used to draw from one shared pool, and the
@@ -37,9 +59,9 @@ last of them started at `range(len(repairs) + 1, ...)` — so a project that nee
 repairs arrived at its failing tests with zero attempts left, and the tests were never even
 asked about. The motive that got there first spent everything.
 
-They are separate problems fixed by separate calls. The ceiling is now 3 × 2 rather than 2,
-which is more model calls in the worst case and the right trade: a project one repair away
-from green used to be delivered red."""
+The loop itself now lives in `convergence.py` and this is an alias of its ceiling: the three
+hand-written copies of it here had already drifted apart once, which is what that module
+exists to stop happening twice."""
 
 
 class ProjectStatus(StrEnum):
@@ -106,6 +128,16 @@ def _repair_phase(t: MessageCatalog, motive: str, attempt: int, changed: Sequenc
                  detail if changed else f"{detail} — {cause or 'sin causa declarada'}", ms, cause)
 
 
+def _round_phase(t: MessageCatalog, round: Round) -> Phase:
+    """One round of :class:`~mirag.projects.convergence.ConvergenceLoop` as a phase row.
+
+    The loop knows nothing about phases, catalogs or statuses, and this is the whole of the
+    translation between the two. `_repair_phase` keeps its own signature because a script
+    checks it directly.
+    """
+    return _repair_phase(t, round.motive, round.attempt, round.changed, round.cause, round.ms)
+
+
 @dataclass(frozen=True, slots=True)
 class Certificate:
     status: ProjectStatus
@@ -118,6 +150,13 @@ class Certificate:
     interpreter: str = ""
     project: Project | None = field(default=None, compare=False)
     """The (possibly repaired) project that was really verified."""
+    installation: InstallReport | None = field(default=None, compare=False)
+    """What the dependency gate did, or ``None`` when it never ran.
+
+    Kept on the certificate because "the tests passed" means something different when the
+    packages under them were installed for this run than when they were already there, and a
+    reader should not have to infer which from the phase rows. It also names the volume they
+    went into, which is the only handle anybody has on them."""
 
     @property
     def ok(self) -> bool:
@@ -131,10 +170,6 @@ class Certificate:
     def failed(self) -> int:
         return sum(1 for v in self.markers.values() if v == "FAIL")
 
-
-Repairer = Callable[[Project, Sequence[Finding], str, int], tuple[Project, tuple[str, ...], str]]
-"""``(project, errors, output, attempt) -> (new project, changed paths, cause)``. ONE type:
-the generator builds it and the certifier calls it."""
 
 PhaseListener = Callable[[Phase], None]
 
@@ -155,9 +190,16 @@ def validate_structure(project: Project, catalog: MessageCatalog) -> list[str]:
     # of PARTIAL. A project whose tests never ran was reported as one whose tests were silent.
     #
     # Two places disagreeing about where tests live is the bug. One place wins.
-    if not any(f.path.startswith("tests/") and f.path.endswith(".py") for f in files):
+    #
+    # That holds for the languages Mirag runs — Python and Node.js, where the harness looks in
+    # `tests/` and only there. For every other language the test is recognised by its own
+    # convention (`foo_test.go`, `src/test/`, `foo_spec.rb`): nothing here executes it, so
+    # there is no harness whose search directory has to agree. Which language it is comes from
+    # the blueprint, then from the files (see `languages.detect`).
+    paths = [f.path for f in files]
+    if not languages.has_tests(paths, languages.detect(project.spec, paths)):
         problems.append(catalog.t("cert.problem.no_tests"))
-    if not any(f.path.endswith((".py", ".js")) for f in files):
+    if not any(languages.is_source(path) for path in paths):
         problems.append(catalog.t("cert.problem.no_code"))
     # Python packages without __init__.py: it works from the root and fails elsewhere
     packages = {"/".join(f.path.split("/")[:-1]) for f in files if f.path.endswith(".py") and "/" in f.path}
@@ -286,7 +328,7 @@ class StatusDeriver:
     """Derives the STATUS only from what was observed. Read top to bottom: the first
     condition that holds wins."""
 
-    SUPERSEDES = {"tests_after_repair": "tests"}
+    SUPERSEDES: ClassVar[dict[str, str]] = {"tests_after_repair": "tests"}
     """A phase that re-runs an earlier one under a different name.
 
     `tests_after_repair` is the whole list today. It exists because the trace should show that
@@ -360,20 +402,44 @@ class ProjectCertifier:
     """Walks the whole chain and returns a :class:`Certificate`. It calls no model unless a
     repairer is given, and even then at most :data:`MAX_REPAIRS` times."""
 
-    def __init__(self, runner: CodeRunner, syntax: SyntaxChecker, analyzer: DependencyAnalyzer,
-                 evidence: EvidenceBuilder | None = None) -> None:
+    def __init__(self, runner: CodeExecutionBackend, syntax: SyntaxChecker, analyzer: DependencyAnalyzer,
+                 evidence: EvidenceBuilder | None = None,
+                 installer: DependencyInstaller | None = None,
+                 max_repairs: int = MAX_REPAIRS) -> None:
         self._runner = runner
         self._syntax = syntax
         self._analyzer = analyzer
         self._evidence = evidence or EvidenceBuilder()
+        self._installer: DependencyInstaller = installer or NullInstaller()
+        self._max_repairs = max_repairs
 
     @property
     def analyzer(self) -> DependencyAnalyzer:
         """The import graph, for whoever needs to follow it — the repairer does."""
         return self._analyzer
 
+    @property
+    def installer(self) -> DependencyInstaller:
+        return self._installer
+
     def _python(self) -> str:
         return "python3"
+
+    def _tests_probe(self, language: languages.Language | None) -> tuple[dict[str, str], str] | None:
+        """``(probe files, command)`` for a language Mirag can run here, else ``None``.
+
+        `None` is an answer, not an error: for Go, Rust or Java the tests exist and are
+        delivered, and nothing here can execute them. It is also what a Node.js project gets on a
+        machine with no `node` — asking the runner anyway would come back "not executed" and be
+        reported as tests that ran and printed nothing, which is a different sentence.
+        """
+        if language is None:
+            return None
+        if language.harness == "python":
+            return probes.tests_probe("tests"), f"{self._python()} _probe_tests.py"
+        if language.harness == "node" and self._runner.interpreters.resolve("node"):
+            return probes.node_tests_probe("tests"), "node _probe_tests.mjs"
+        return None
 
     def certify(
         self,
@@ -389,12 +455,35 @@ class ProjectCertifier:
         phases: list[Phase] = []
         repairs: list[dict[str, Any]] = []
         interpreter = self._runner.interpreters.resolve(self._python()) or ""
+        # The Docker volume the packages this project declared ended up in, once they have.
+        # Empty until the dependency gate below runs, and every probe from there on is given
+        # it — per call, never as state on the runner: one process certifies several projects
+        # at a time and a runner remembering a volume would lend one project's packages to
+        # another's tests.
+        dependencies = ""
+        loop = ConvergenceLoop(self._max_repairs, deadline)
 
         def note(phase: Phase) -> Phase:
             phases.append(phase)
             if on_phase:
                 on_phase(phase)
             return phase
+
+        def converge(motive: str, project: Project, verdict: Verdict,
+                     probe: Callable[[Project], Verdict]) -> Convergence:
+            """One motive, repaired until it is green or until there is a reason it is not.
+
+            Every round is noted as it happens and recorded in `repairs`, so the trace shows
+            the same history it always did — what changed is that the three motives no longer
+            keep three separate, drifting copies of this.
+            """
+            def on_repair(round: Round) -> None:
+                # Before the re-check, so the trace reads in the order things happened: what
+                # the repair touched, and only then what happened when it was run again.
+                note(_round_phase(t, round))
+                repairs.append(round.as_record())
+
+            return loop.converge(motive, project, verdict, probe, repairer, on_repair)
 
         # ── 1. structure ─────────────────────────────────────────────────────
         clock = Stopwatch()
@@ -445,21 +534,22 @@ class ProjectCertifier:
         # the model hit its output budget. Nine good files were thrown away, certification
         # stopped before imports, and a download button appeared over a project that cannot
         # be imported. The repairer was sitting right there, already written.
-        if syntax_error and repairer:
-            for attempt in range(1, MAX_REPAIRS + 1):
-                clock.restart()
-                repaired, changed, cause = repairer(project, _as_findings(syntax_error), "", attempt)
-                repairs.append({"attempt": attempt, "files": list(changed), "cause": cause,
-                                "motive": "syntax"})
-                note(_repair_phase(t, "syntax", attempt, changed, cause, clock.ms))
-                if not changed:
-                    break
-                project = repaired
-                syntax_error = self._syntax.check(project.as_text_mapping())
-                if not syntax_error:
-                    note(Phase("syntax", PhaseStatus.OK, t("cert.syntax.repaired", attempt=attempt),
-                               clock.ms))
-                    break
+        if syntax_error:
+            def compiles(candidate: Project) -> Verdict:
+                # The probe owns `syntax_error` from here on: what the loop returns is a
+                # verdict, and what the code below needs is the failing result itself.
+                nonlocal syntax_error
+                syntax_error = self._syntax.check(candidate.as_text_mapping())
+                return Verdict(green=syntax_error is None,
+                               findings=() if syntax_error is None else _as_findings(syntax_error),
+                               detail="" if syntax_error is None else syntax_error.detail)
+
+            converged = converge("syntax", project, Verdict(False, _as_findings(syntax_error)),
+                                 compiles)
+            project = converged.project
+            if converged.green:
+                note(Phase("syntax", PhaseStatus.OK,
+                           t("cert.syntax.repaired", attempt=converged.attempts), clock.ms))
 
         if syntax_error:
             return Certificate(ProjectStatus.FAILED, t("cert.reason.syntax", detail=syntax_error.detail[:120]),
@@ -476,42 +566,87 @@ class ProjectCertifier:
                     t("cert.imports.limited", count=len(limits)) if limits else t("cert.imports.ok")),
                    clock.ms))
 
-        if errors and repairer:
-            for attempt in range(1, MAX_REPAIRS + 1):
-                clock.restart()
-                repaired, changed, cause = repairer(project, errors, "", attempt)
-                repairs.append({"attempt": attempt, "files": list(changed), "cause": cause, "motive": "imports"})
-                note(_repair_phase(t, "imports", attempt, changed, cause, clock.ms))
-                if not changed:
-                    break
-                project = repaired
-                _imports, findings = self._analyzer.analyze(project)
+        if errors:
+            def resolves(candidate: Project) -> Verdict:
+                nonlocal findings, errors, limits
+                _records, findings = self._analyzer.analyze(candidate, dependencies)
                 errors = DependencyAnalyzer.of_severity(findings, Severity.ERROR)
                 limits = DependencyAnalyzer.of_severity(findings, Severity.LIMIT)
-                if not errors:
-                    # Re-noted, not left as it was. The first `imports` row said FAILED and
-                    # that row is what the verdict reads; without this a project whose imports
-                    # were repaired, whose tests pass and whose CRUD is green comes out
-                    # PARTIAL because of a phase that is no longer true. The failed row stays
-                    # in the trace — the history is the point — and this one supersedes it.
-                    note(Phase("imports", PhaseStatus.LIMITED if limits else PhaseStatus.OK,
-                               t("cert.imports.limited", count=len(limits)) if limits
-                               else t("cert.imports.repaired", attempt=attempt), clock.ms))
-                    break
+                return Verdict(green=not errors, findings=tuple(errors),
+                               detail=errors[0].detail if errors else "")
+
+            converged = converge("imports", project, Verdict(False, tuple(errors)), resolves)
+            project = converged.project
+            if converged.green:
+                # Re-noted, not left as it was. The first `imports` row said FAILED and that
+                # row is what the verdict reads; without this a project whose imports were
+                # repaired, whose tests pass and whose CRUD is green comes out PARTIAL because
+                # of a phase that is no longer true. The failed row stays in the trace — the
+                # history is the point — and this one supersedes it.
+                note(Phase("imports", PhaseStatus.LIMITED if limits else PhaseStatus.OK,
+                           t("cert.imports.limited", count=len(limits)) if limits
+                           else t("cert.imports.repaired", attempt=converged.attempts), clock.ms))
 
         if errors:
             return Certificate(ProjectStatus.FAILED,
                                t("cert.reason.broken_imports", count=len(errors), detail=errors[0].detail),
                                tuple(phases), tuple(findings), {}, repairs=tuple(repairs), project=project)
 
-        # With a missing external dependency nothing can run, and that is NOT a project
-        # failure. It is a ceiling: VALIDATED, saying exactly why.
+        # ── 3b. the ceiling, and the one thing that lifts it ─────────────────
+        #
+        # A missing external dependency caps the status at VALIDATED and the tests are never
+        # run. That is the honest verdict for a machine that cannot install anything, and it
+        # was the FIRST answer on every machine — including the ones that can. A FastAPI
+        # project was being delivered unexecuted because `fastapi` was not importable, when
+        # installing it is one bounded command.
+        #
+        # So: install what the project declared, ask the analyzer again, and only then decide.
+        # If the install fails nothing is lost — the ceiling below is exactly where the run
+        # lands, now with the log saying why it could not be lifted.
+        #
+        # WHERE the packages go is the installer's business and it has exactly one answer: a
+        # Docker volume, mounted read-only into the same sandbox the tests run in. On a
+        # deployment with no sandbox there is no install, and `NullInstaller` says so — which
+        # is why this branch checks `enabled` and never the backend.
+        install: InstallReport | None = None
+        if limits and self._installer.enabled and self._runner.enabled and not loop.out_of_time():
+            clock.restart()
+            install = self._installer.install(project)
+            note(Phase("dependencies", PhaseStatus.OK if install.ok else PhaseStatus.LIMITED,
+                       (t("cert.dependencies.installed", count=len(install.installed),
+                          detail=", ".join(install.installed[:6]))
+                        if install.ok
+                        else t("cert.dependencies.failed", reason=install.detail)),
+                       clock.ms, install.log))
+            if install.refused:
+                # Named rather than silently dropped: `-r other.txt`, `--index-url …` and
+                # `git+ssh://…` are all ordinary lines of a requirements file, none of them
+                # may reach pip from here, and a person reading the trace should see which.
+                note(Phase("dependencies:refused", PhaseStatus.LIMITED,
+                           t("cert.dependencies.refused", count=len(install.refused),
+                             detail="; ".join(install.refused[:3]))))
+            if install.ok:
+                dependencies = install.volume
+                clock.restart()
+                _imports, findings = self._analyzer.analyze(project, dependencies)
+                errors = DependencyAnalyzer.of_severity(findings, Severity.ERROR)
+                limits = DependencyAnalyzer.of_severity(findings, Severity.LIMIT)
+                note(Phase("imports",
+                           PhaseStatus.FAILED if errors else
+                           PhaseStatus.LIMITED if limits else PhaseStatus.OK,
+                           (t("cert.imports.broken", count=len(errors)) if errors else
+                            t("cert.imports.limited", count=len(limits)) if limits
+                            else t("cert.imports.resolved_after_install")), clock.ms))
+
+        # The ceiling, for whatever the install did not reach. Unchanged: VALIDATED, saying
+        # exactly which package is missing.
         if limits:
-            missing = ", ".join(sorted({f.subject for f in findings if f.kind == "missing_dependency"}))
-            note(Phase("execution", PhaseStatus.LIMITED, t("cert.execution.limited", missing=missing)))
-            return Certificate(ProjectStatus.VALIDATED, t("cert.reason.validated", missing=missing),
+            missing_deps = ", ".join(sorted({f.subject for f in findings if f.kind == "missing_dependency"}))
+            note(Phase("execution", PhaseStatus.LIMITED, t("cert.execution.limited", missing=missing_deps)))
+            return Certificate(ProjectStatus.VALIDATED, t("cert.reason.validated", missing=missing_deps),
                                tuple(phases), tuple(findings), {}, repairs=tuple(repairs),
-                               interpreter=interpreter, project=project)
+                               interpreter=interpreter, project=project,
+                               installation=install)
 
         # Sections 4 and 5 are the ONLY ones that run the project. With execution off none of
         # their phases is noted, on purpose: a "tests" phase makes the status EXECUTED ("the
@@ -524,24 +659,43 @@ class ProjectCertifier:
         # answer nobody is waiting for. Degrading is the whole point: the project is kept,
         # packaged and reported as what it is, which `derive` already words correctly —
         # "there are files and nothing was ever executed".
-        if deadline is not None and (deadline.expired() or deadline.cancelled.is_set()):
+        if loop.out_of_time():
             note(Phase("execution", PhaseStatus.SKIPPED, t("cert.execution.deadline")))
             status, reason = StatusDeriver(t).derive(tuple(phases), {}, tuple(findings))
             return Certificate(status, reason, tuple(phases), tuple(findings), {},
-                               repairs=tuple(repairs), interpreter=interpreter, project=project)
+                               repairs=tuple(repairs), interpreter=interpreter, project=project,
+                               installation=install)
 
         if not self._runner.enabled:
             note(Phase("execution", PhaseStatus.SKIPPED, t("cert.execution.disabled")))
             status, reason = StatusDeriver(t).derive(tuple(phases), {}, tuple(findings))
             return Certificate(status, reason, tuple(phases), tuple(findings), {}, repairs=tuple(repairs),
-                               interpreter=interpreter, project=project)
+                               interpreter=interpreter, project=project, installation=install)
 
         # ── 4. the project's tests, ALWAYS through the probe ─────────────────
         # With the bare project command, unittest prints no markers and the phase comes out
         # NO EVIDENCE - a silence the CRUD markers used to hide, giving a false VERIFIED.
+        language = languages.detect(project.spec, project.paths())
+        probe = self._tests_probe(language)
+        if probe is None:
+            # Named "execution", not "tests": a phase called "tests" is what makes the status
+            # EXECUTED — "the tests ran and printed no marker" — and nothing ran. Without it
+            # the verdict is GENERATED, which is exactly the truth: there are files, and their
+            # tests were written in the right language and are waiting for someone who can run
+            # them.
+            note(Phase("execution", PhaseStatus.SKIPPED,
+                       t("cert.tests.no_harness", language=language.name if language else "?")))
+            status, reason = StatusDeriver(t).derive(tuple(phases), {}, tuple(findings))
+            return Certificate(status, reason, tuple(phases), tuple(findings), {}, repairs=tuple(repairs),
+                               interpreter=interpreter, project=project, installation=install)
+        harness, tests_command = probe
+
+        def run_tests(candidate: Project) -> ExecutionResult:
+            return self._runner.run({**candidate.as_text_mapping(), **harness}, tests_command,
+                                    dependencies=dependencies)
+
         clock.restart()
-        harness = probes.tests_probe("tests")
-        tests = self._runner.run({**project.as_text_mapping(), **harness}, f"{self._python()} _probe_tests.py")
+        tests = run_tests(project)
         note(Phase("tests", _FROM_EXECUTION.get(tests.status, PhaseStatus.LIMITED), tests.describe(t),
                    clock.ms, tests.text))
         markers = dict(tests.markers)
@@ -550,30 +704,29 @@ class ProjectCertifier:
         # matter that the probe passes: what the user types will not work.
         if test_command:
             clock.restart()
-            documented = self._runner.run(project.as_text_mapping(), test_command)
+            documented = self._runner.run(project.as_text_mapping(), test_command,
+                                          dependencies=dependencies)
             broken = documented.status in (ExecutionStatus.FAILED, ExecutionStatus.NOT_EXECUTED)
             note(Phase("documented_command", PhaseStatus.FAILED if broken else PhaseStatus.OK,
                        (t("cert.documented.fails", command=test_command, header=documented.describe(t)) if broken
                         else t("cert.documented.ok", command=test_command)),
                        clock.ms, documented.text))
 
-        if tests.status is ExecutionStatus.FAILED and repairer:
-            for attempt in range(1, MAX_REPAIRS + 1):
-                clock.restart()
-                repaired, changed, cause = repairer(
-                    project, failures_as_findings(tests.text, project.paths()), tests.text, attempt)
-                repairs.append({"attempt": attempt, "files": list(changed), "cause": cause, "motive": "tests"})
-                note(_repair_phase(t, "tests", attempt, changed, cause, clock.ms))
-                if not changed:
-                    break
-                project = repaired
-                tests = self._runner.run({**project.as_text_mapping(), **harness},
-                                         f"{self._python()} _probe_tests.py")
+        if tests.status is ExecutionStatus.FAILED:
+            def green_tests(candidate: Project) -> Verdict:
+                nonlocal tests, markers
+                tests = run_tests(candidate)
+                markers = dict(tests.markers)
                 note(Phase("tests_after_repair", _FROM_EXECUTION.get(tests.status, PhaseStatus.LIMITED),
                            tests.describe(t), 0.0, tests.text))
-                markers = dict(tests.markers)
-                if tests.status is ExecutionStatus.PASSED:
-                    break
+                return Verdict(green=tests.status is ExecutionStatus.PASSED,
+                               findings=failures_as_findings(tests.text, candidate.paths()),
+                               output=tests.text, detail=tests.header)
+
+            project = converge(
+                "tests", project,
+                Verdict(False, failures_as_findings(tests.text, project.paths()), tests.text),
+                green_tests).project
 
         # ── 5. real CRUD, if the project exposes the contract ────────────────
         entrypoint, factory = find_entrypoint(project)
@@ -587,7 +740,8 @@ class ProjectCertifier:
             crud_run = self._runner.run({**project.as_text_mapping(),
                                          **probes.crud_probe(entrypoint, mark, resource, sample, change,
                                                              entrypoint_name=factory)},
-                                        f"{self._python()} _probe_crud.py")
+                                        f"{self._python()} _probe_crud.py",
+                                        dependencies=dependencies)
             note(Phase("crud", _FROM_EXECUTION.get(crud_run.status, PhaseStatus.LIMITED), crud_run.describe(t),
                        clock.ms, crud_run.text))
             markers.update(crud_run.markers)
@@ -602,4 +756,4 @@ class ProjectCertifier:
         )
         status, reason = StatusDeriver(t).derive(tuple(phases), markers, tuple(findings), crud)
         return Certificate(status, reason, tuple(phases), tuple(findings), markers, tuple(evidence),
-                           tuple(repairs), interpreter, project)
+                           tuple(repairs), interpreter, project, install)

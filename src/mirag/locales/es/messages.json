@@ -169,7 +169,7 @@
     },
     "problem": {
       "no_files": "el proyecto no tiene archivos",
-      "no_tests": "no hay ningún .py bajo tests/, que es donde mira el arnés",
+      "no_tests": "no hay ningún archivo de tests en el lenguaje del proyecto (bajo tests/ en Python y Node.js, que es donde mira el arnés)",
       "no_code": "no hay ningún archivo de código",
       "missing_init": "{package}/ no tiene __init__.py"
     },
@@ -186,12 +186,14 @@
       "broken": "{count} imports rotos",
       "limited": "{count} dependencias no instaladas aquí",
       "ok": "el grafo de imports resuelve entero",
-      "repaired": "reparado en el intento {attempt}: todos los imports resuelven"
+      "repaired": "reparado en el intento {attempt}: todos los imports resuelven",
+      "resolved_after_install": "tras instalar, el grafo de imports resuelve entero"
     },
     "repair": {
       "imports": "{count} archivos tocados por imports rotos",
       "syntax": "{count} archivos tocados porque no compilan",
-      "tests": "{count} archivos tocados por tests en rojo"
+      "tests": "{count} archivos tocados por tests en rojo",
+      "dependencies": "{count} archivos tocados por dependencias que faltaban"
     },
     "execution": {
       "limited": "no se ejecuta aquí: falta {missing}",
@@ -201,6 +203,9 @@
     "documented": {
       "fails": "`{command}` falla: {header}",
       "ok": "`{command}` corre sin errores"
+    },
+    "tests": {
+      "no_harness": "sin ejecutar: Mirag no puede correr tests de {language} en esta máquina. Los tests se entregan en el lenguaje del proyecto, para quien pueda correrlos"
     },
     "crud": {
       "skipped": "el proyecto no expone una fábrica de servidor (create_server): no hay API que ejercitar"
@@ -212,6 +217,11 @@
       "syntax": "no compila: {detail}",
       "broken_imports": "quedan {count} imports rotos: {detail}",
       "validated": "el código compila y su grafo de imports resuelve, pero no se pudo ejecutar: {missing} no está instalado en esta máquina. El proyecto puede estar bien; aquí no hay evidencia de que lo esté."
+    },
+    "dependencies": {
+      "installed": "instaladas {count} dependencias declaradas: {detail}",
+      "failed": "no se pudieron instalar las dependencias: {reason}",
+      "refused": "{count} líneas de requirements.txt no son un paquete con versión y no se pasan al instalador: {detail}"
     }
   },
   "derive": {
@@ -234,6 +244,8 @@
   "generation": {
     "no_plan": "el modelo no devolvió un plano utilizable",
     "tests_added": "el plano no traía tests: se añadieron {count} archivos",
+    "test_command_replaced": "el comando de test '{old}' no puede correr aquí: se usa '{new}'",
+    "foreign_tests_dropped": "{count} archivos de test estaban en otro lenguaje que el proyecto y se descartaron: {names}",
     "specified": "{name} · {framework} · {count} archivos planeados",
     "call_cap": "tope de {cap} llamadas alcanzado: este grupo no se generó",
     "group_files": "{count} archivos",

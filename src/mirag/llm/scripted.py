@@ -46,7 +46,10 @@ class ScriptedChatModel:
         self.received: list[dict[str, Any]] = []
         """What was sent, so tests can assert on it."""
 
-    def complete(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None) -> LLMResponse:
+    def complete(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None,
+                 require: str | None = None) -> LLMResponse:
+        # `require` is in the signature because `ChatModel` says so; a script has no tool choice
+        # to honour, so it is accepted and ignored.
         self.calls += 1
         # a copy: the caller keeps appending to the same list after the call
         self.received.append({"messages": list(messages), "tools": tools})

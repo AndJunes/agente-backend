@@ -67,13 +67,13 @@ class LLMGateway:
                   require: str | None):
         """Calls the model, tolerating one that does not know about ``tool_choice``.
 
-        Scripted doubles and older clients take two arguments. Rather than make every one of
+        Older clients and third-party doubles take two arguments. Rather than make every one of
         them grow a parameter they ignore, the requirement is dropped when it cannot be
         passed — the caller then gets the same answer it got before this existed."""
         if require is None:
             return self.model.complete(messages, tools)
         try:
-            return self.model.complete(messages, tools, require)  # type: ignore[call-arg]
+            return self.model.complete(messages, tools, require)
         except TypeError:
             return self.model.complete(messages, tools)
 

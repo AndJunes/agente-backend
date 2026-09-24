@@ -11,13 +11,14 @@ import traceback
 import urllib.parse
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any
 
 from mirag import __version__
 from mirag.api.router import Router
 from mirag.api.schemas import MAX_BODY_BYTES, ChatRequest, ValidationError
 from mirag.core.errors import MiragError, ModelUnreachableError, RateLimitedError
 from mirag.core.text import sha256_hex
+from mirag.execution.docker_runner import DockerCodeRunner
 from mirag.projects.artifacts import VALID_ID
 from mirag.projects.model import safe_name
 
@@ -26,7 +27,7 @@ if TYPE_CHECKING:
 
 API = "/api/v1"
 TOKEN_HEADER = "X-Mirag-Token"
-PROTECTED_ROUTES = frozenset({"chat", "download", "operation"})
+PROTECTED_ROUTES = frozenset({"chat", "download", "operation", "console"})
 """What costs money or hands out generated code. The page, health and the rest stay open.
 
 `operation` is in here from the moment the route exists, not after someone notices. This is a
@@ -42,8 +43,12 @@ SECURITY_HEADERS = {
 class ApiRequestHandler(BaseHTTPRequestHandler):
     """Routes requests to the container's use cases. One instance per request."""
 
-    container: ClassVar[Container]
-    router: ClassVar[Router]
+    container: Container
+    """Which container answers. Set once, at class-construction time, for a process serving one
+    agent (`build_server`, below) — or per-request, by a leading path segment, for one serving
+    several (`mirag_manager.server.ManagerRequestHandler`). Not a `ClassVar`: the second case is
+    exactly an instance overriding what would otherwise be a class-wide default."""
+    router: Router
     server_version = f"Mirag/{__version__}"
     protocol_version = "HTTP/1.1"
 
@@ -327,6 +332,71 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
                                        cancelled=cancelled)
 
 
+def _console(self: ApiRequestHandler, query: dict[str, list[str]], head_only: bool,
+             artifact_id: str) -> None:
+    """Run a command against a delivered project and stream what it prints.
+
+    Three doors, in this order, and each answers before the body is read: the token (the route
+    is protected), the switch (`MIRAG_CONSOLE`), and the id. Only then is a command looked at,
+    and only then does anything run. The output is the same SSE framing `/chat` uses, so the
+    hop in front of this agent needs no new idea.
+    """
+    console = getattr(self.container, "console", None)
+    if console is None or not console.enabled:
+        self.close_connection = True  # the body was never read: do not reuse the connection
+        self._error(403, "console_disabled", "the console is switched off on this agent (MIRAG_CONSOLE)")
+        return
+    if not VALID_ID.match(artifact_id or ""):
+        self.close_connection = True
+        self._error(400, "malformed_id", "malformed artifact id")  # literal: the input is not echoed
+        return
+    payload = self._read_json(head_only)
+    if payload is None:
+        return
+    command = payload.get("command")
+    if not isinstance(command, str) or not command.strip():
+        self._error(400, "invalid_request", "`command` must be a non-empty string")
+        return
+    artifact = self.container.artifacts.get(artifact_id)
+    if artifact is None:
+        self._error(410, "gone", "that artifact no longer exists")
+        return
+
+    self._answered = True  # from here on the catch-all must not write a second response
+    self.send_response(200)
+    self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+    self.send_header("Cache-Control", "no-cache")
+    self.send_header("Connection", "close")
+    for key, value in SECURITY_HEADERS.items():
+        self.send_header(key, value)
+    self.end_headers()
+    self.close_connection = True
+
+    cancelled = threading.Event()
+    writing = threading.Lock()
+    gone = False
+
+    def write(frame: str) -> None:
+        nonlocal gone
+        if gone:
+            return
+        try:
+            with writing:
+                self.wfile.write(frame.encode())
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            gone = True
+            cancelled.set()  # a stop button that is the browser closing the request
+
+    def emit(event: dict[str, Any]) -> None:
+        write(f"data: {json.dumps(event, ensure_ascii=False, default=str)}\n\n")
+
+    # Always watching, unlike `/chat`, where it follows a setting: here the way to stop a server
+    # that is running is for the browser to hang up, and that has to actually stop it.
+    with _DisconnectWatch(self.connection, cancelled, True), _Heartbeat(write):
+        console.run(artifact_id, artifact.project.as_text_mapping(), command, emit, cancelled)
+
+
 class _Heartbeat:
     """Keeps the stream from going silent long enough for somebody in the middle to kill it.
 
@@ -429,6 +499,11 @@ def build_router(container: Container | None = None) -> Router:
     router.add("GET", f"{API}/artifacts/{{artifact_id}}/download", h.download, "download")
     router.add("GET", f"{API}/blockchain/agent", h.blockchain, "blockchain")
     router.add("POST", f"{API}/chat", h.chat, "chat")
+    # Only an agent that PRODUCES projects has any to run. The PM is built from the same
+    # container class and carries a console object too, but has no artifacts: advertising the
+    # route there would be a door onto an empty room.
+    if container is not None and getattr(container, "console", None) is not None and not container.operations:
+        router.add("POST", f"{API}/artifacts/{{artifact_id}}/exec", _console, "console")
     # Registered only when this container has operations, so a process that cannot serve them
     # does not advertise them. The backend answers 404 here, which is the truth.
     if container is not None and container.operations:
@@ -466,6 +541,11 @@ def startup_notes(container: Container, host: str) -> list[str]:
     if not settings.execution:
         notes.append("Execution is off: code and tests are delivered WITHOUT running them and the "
                       "verdict is 'not executed'. Switch it on with MIRAG_EXECUTION=on.")
+    if (settings.execution and isinstance(container.runner, DockerCodeRunner)
+            and not container.runner.image_available()):
+        notes.append(f"MIRAG_EXECUTION_BACKEND=docker but the image {settings.docker_image!r} "
+                      "was not found. Build it once with 'make runner-image', or every probe "
+                      "will answer NOT EXECUTED until you do.")
     if host not in LOOPBACK:
         notes.append(f"WARNING: listening on {host}, not only on loopback, "
                      f"{'with' if settings.api_token else 'WITHOUT'} a token. Publish it only against "

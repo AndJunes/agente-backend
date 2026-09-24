@@ -24,7 +24,6 @@ from mirag.container import Container
 from mirag.core.errors import OfflineModeError
 from mirag.llm.messages import first_tool_arguments, function_tool
 from mirag.llm.models import ANY_TOOL
-
 from mirag_pm import offline
 from mirag_pm.audit import CitationAuditor
 

@@ -22,7 +22,7 @@ from __future__ import annotations
 import ast
 import subprocess
 import sys
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -147,9 +147,30 @@ def worst(findings: Iterable[Finding]) -> Severity | None:
     return Severity.NOTICE if findings else None
 
 
+ProbeArgv = Callable[[str, str], list[str]]
+"""``(script, dependencies) -> argv``. The second argument names the Docker volume of
+installed packages the probe must be able to import, or ``""`` for "ask about the bare
+interpreter"."""
+
+
 class DependencyAnalyzer:
-    def __init__(self, interpreters: InterpreterRegistry) -> None:
+    def __init__(self, interpreters: InterpreterRegistry,
+                 probe_argv: ProbeArgv | None = None) -> None:
         self._interpreters = interpreters
+        # Not routed through a `CodeExecutionBackend`: this check runs UNCONDITIONALLY, even
+        # with execution switched off, because "is this importable here" is a fact independent
+        # of whether the agent is allowed to run the project's own tests. `runner.run()` would
+        # short-circuit to `not_executed` the moment `enabled` is `False`, which would silently
+        # turn every accurate answer here into "could not be observed". `probe_argv` still lets
+        # the docker backend point this at the SAME interpreter its tests actually run against,
+        # without adopting the runner's enabled-gating.
+        self._probe_argv = probe_argv or self._host_probe_argv
+
+    def _host_probe_argv(self, script: str, dependencies: str = "") -> list[str]:
+        # Ignored: a volume name means nothing to a host interpreter, and the host backend is
+        # never wired to an installer, so this is always "". See `projects/installation.py`.
+        del dependencies
+        return [self._interpreters.resolve("python3") or sys.executable, "-c", script]
 
     @staticmethod
     def module_map(project: Project) -> dict[str, str]:
@@ -210,18 +231,23 @@ class DependencyAnalyzer:
             kind = "external"
         return ImportRecord(file.path, line, module, names, level, kind)
 
-    def installed(self, roots: Iterable[str]) -> dict[str, bool | None]:
+    def installed(self, roots: Iterable[str], dependencies: str = "") -> dict[str, bool | None]:
         """Are they installed IN THE INTERPRETER MIRAG RUNS CODE WITH? Observed, not assumed.
-        ``None`` means it could not be observed."""
+        ``None`` means it could not be observed.
+
+        ``dependencies`` names the volume of packages just installed for this project. It is
+        what turns "``fastapi`` is not installed on this machine" into an answer that can
+        change within one run, which is the entire point of installing anything.
+        """
         names = sorted({r for r in roots if r})
         if not names:
             return {}
-        binary = self._interpreters.resolve("python3") or sys.executable
         script = ("import importlib.util as u\n"
                   f"for m in {names!r}:\n"
                   "    print(m, u.find_spec(m) is not None, flush=True)\n")
         try:
-            completed = subprocess.run([binary, "-c", script], capture_output=True, text=True,
+            completed = subprocess.run(self._probe_argv(script, dependencies),
+                                       capture_output=True, text=True,
                                        encoding="utf-8", errors="replace", timeout=20, check=False)
         except (OSError, subprocess.SubprocessError):
             return {n: None for n in names}
@@ -247,13 +273,19 @@ class DependencyAnalyzer:
                 names.add(clean.strip().lower().replace("-", "_"))
         return frozenset(names)
 
-    def analyze(self, project: Project) -> tuple[tuple[ImportRecord, ...], tuple[Finding, ...]]:
-        """``(imports, findings)``. The findings carry the severity that decides the status."""
+    def analyze(self, project: Project,
+                dependencies: str = "") -> tuple[tuple[ImportRecord, ...], tuple[Finding, ...]]:
+        """``(imports, findings)``. The findings carry the severity that decides the status.
+
+        Run a second time with ``dependencies`` after an install, and the
+        ``missing_dependency`` LIMITs that capped the project simply are not produced: the
+        analysis is the same, the interpreter's answer is what changed.
+        """
         imports = self.imports(project)
         mapping = self.module_map(project)
         by_path = {f.path: f for f in project.files()}
         external_roots = {i.module.split(".")[0] for i in imports if i.kind == "external"}
-        present = self.installed(external_roots)
+        present = self.installed(external_roots, dependencies)
         declared = self.declared(project)
         findings: list[Finding] = []
 

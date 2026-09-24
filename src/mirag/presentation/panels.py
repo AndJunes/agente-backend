@@ -92,15 +92,23 @@ class CostPresenter:
 
     def present(self, run: PipelineRun, spent: BudgetSnapshot, catalog: MessageCatalog,
                 demo: str | None = None, model: str = "") -> dict[str, Any]:
+        # `text` is written for a person and says different things in different cases — "free",
+        # "it came from a script", "$0.0123". `usage` says the same thing in numbers, always
+        # the same three keys, and never formatted. Whoever meters this run reads `usage`;
+        # parsing a sentence that is allowed to change wording is not a billing input.
+        usage = {"tokens": 0 if run.simulated else spent.tokens,
+                 "calls": 0 if run.simulated else spent.calls,
+                 "cost_usd": 0.0 if run.simulated else spent.cost_usd,
+                 "simulated": run.simulated}
         if run.simulated:
             # A demo has a script and answers; without a demo there was no decision at all.
             # Saying "it came from a script" when there was no script would be inventing.
-            return {"simulated": True, "demo": demo, "calls": 0,
+            return {"simulated": True, "demo": demo, "calls": 0, "usage": usage,
                     "text": catalog.t("cost.simulated") if demo else catalog.t("cost.no_model")}
         if spent.calls and spent.cost_usd == 0:
             # Real calls reporting exactly 0: a free model (the provider sends no cost). "$0.0000"
             # would suggest a spend measurement nobody made. It is free, and it says of what.
             return {"simulated": False, "free": True, "model": model, "text": catalog.t("cost.free", model=model),
-                    "calls": spent.calls, "tokens": spent.tokens}
+                    "calls": spent.calls, "tokens": spent.tokens, "usage": usage}
         return {"simulated": False, "free": False, "text": f"${spent.cost_usd:.4f}", "calls": spent.calls,
-                "tokens": spent.tokens}
+                "tokens": spent.tokens, "usage": usage}

@@ -8,18 +8,16 @@ python -m venv .venv
 pip install -e ".[dev]"            # add ",blockchain" for the optional Stellar layer
 ```
 
-Python 3.11 or newer. The runtime has no third-party dependencies; `dev` brings pytest, ruff
-and mypy.
+Python 3.11 or newer. The runtime has no third-party dependencies; `dev` brings ruff and mypy.
 
 ## Everyday commands
 
 | Command | What it does |
 |---|---|
-| `make run` / `mirag serve` | Start the server on http://127.0.0.1:8000 (offline, $0) |
-| `make test` / `pytest` | The fast suite (offline, isolated temp folders). Tests marked `slow` are skipped by default |
-| `make test-all` / `pytest -m "not network"` | Everything, including the `slow` tests (subprocesses, HTTP servers) |
-| `make lint` / `ruff check src tests` | Lint |
-| `make typecheck` / `mypy` | Type check |
+| `make run` / `mirag serve` | Start the single agent on http://127.0.0.1:8000 (offline, $0) |
+| `make run-manager` / `python -m mirag_manager serve` | Start the backend agent and the PM behind one port, which is what the CodeZard screen uses (see the README) |
+| `make lint` / `python -m ruff check src benchmarks scripts` | Lint |
+| `make typecheck` / `python -m mypy` | Type check |
 | `make demo` / `mirag demo all` | Run the four canonical demos and check their contracts |
 | `mirag ask "question" --locale es` | One question through the pipeline, printed |
 | `mirag features` | The state of every feature flag and why |
@@ -27,30 +25,35 @@ and mypy.
 
 On Windows without `make`, run the commands on the right.
 
-## Tests
+## Checks
 
-```
-tests/
-├── conftest.py        shared fixtures (offline settings, isolated data dir, engines per locale)
-├── unit/<area>/       one folder per package
-├── integration/       real HTTP server, full project generation, optional network suites
-├── architecture/      AST rules: layering, no third-party imports, encodings, English identifiers
-└── fixtures/          sample repositories
-```
+There is no test suite in this checkout: `tests/` was removed. What stands in for it is what CI
+runs (`.github/workflows/ci.yml`):
+
+| Command | What it guards |
+|---|---|
+| `python -m ruff check src benchmarks scripts` | Lint |
+| `python -m mypy` | Types |
+| `python -m mirag demo all`, and again with `--locale es` | The four demos' contracts, in both languages |
+| `python -m mirag_pm.cli doctor` | Every PM locale loads, and none of its four indices is empty |
+| `python -m mirag_pm.cli coverage --by-domain` | Every PM document is reachable by a skill |
+| `python scripts/check_delivery.py` | A project that does not match its plan is not deliverable |
+| `python scripts/check_deadlines.py` | A hanging call ends, and a closed tab stops the work |
+| `python scripts/check_repair.py` | A failing test reaches the repairer as a file, a line and a reason |
+| `python scripts/check_parallel.py` | Batches run at once without losing files or miscounting calls |
 
 Rules:
 
-- Every test is offline. The gateway refuses to reach a model while `MIRAG_OFFLINE` is on, so a
-  test cannot spend money by accident; model decisions come from `ScriptedChatModel` scripts.
-- Tests write only under `tmp_path`: the `settings`/`container` fixtures point
-  `MIRAG_DATA_DIR` there.
-- Mark tests that spawn interpreters or servers with `@pytest.mark.slow`.
-- Tests that need the real Stellar network are marked `network` and skipped unless enabled.
+- Every check is offline. The gateway refuses to reach a model while `MIRAG_OFFLINE` is on, so a
+  check cannot spend money by accident; model decisions come from `ScriptedChatModel` scripts.
+  CI sets `MIRAG_OFFLINE=1`. Do the same locally if your `.env` has a real key: `.env` only fills
+  in what the environment has not already set.
 
 ## Conventions
 
 - English identifiers, comments and docstrings. User-facing text goes through the catalogs of
-  **both** locales (the i18n tests fail if a key or a placeholder is missing in one of them).
+  **both** locales. Keep the keys and placeholders identical by hand: the i18n parity tests went
+  with `tests/`.
 - Comments explain *why* (a measurement, a past bug), not *what*.
 - Value objects are frozen dataclasses; closed sets of values are `StrEnum`s.
 - Dependencies are injected through constructors; `container.py` is the only composition root.

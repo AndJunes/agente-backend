@@ -8,12 +8,12 @@ local demo, it is NOT a real sandbox.
 from __future__ import annotations
 
 import os
-import shlex
 import subprocess
 import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 
+from mirag.execution.backend import resolve_command, write_workspace
 from mirag.execution.interpreters import InterpreterRegistry
 from mirag.execution.verdict import MAX_OUTPUT, ExecutionResult
 
@@ -21,6 +21,13 @@ KEPT_FROM_ENVIRONMENT = (
     "PATH", "HOME", "LANG", "LC_ALL", "TMPDIR",
     # Windows: without SYSTEMROOT a child Python cannot even seed its random generator
     "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE", "PATHEXT", "COMSPEC",
+    # Windows: `pip install --user` (the default without admin rights) puts packages under
+    # `%APPDATA%\Python\PythonXY\site-packages`, and the interpreter's own `site` module reads
+    # this variable to find that directory. Without it a --user-installed package is invisible
+    # to the child even though `sys.path` finds it fine when the parent runs the same import:
+    # every console-script launcher (`pytest.exe` included) failed with "No module named
+    # '_pytest'" here, on the one machine that ever runs this without a virtualenv.
+    "APPDATA",
 )
 
 DISABLED_REASON = (
@@ -40,6 +47,12 @@ def child_environment() -> dict[str, str]:
     environment. Only what an interpreter needs to start and find its modules is kept.
 
     UTF-8 everywhere: on Windows a child Python otherwise prints in the ANSI code page.
+
+    ``PYTHONPATH`` is deliberately NOT in the kept list and is never added: the host's own
+    must not reach the child, and this backend installs nothing for it to point at. A
+    project's declared dependencies are installed inside the Docker sandbox and only there
+    (see ``projects/installation.py``); on the host, a project that needs one keeps the
+    honest ceiling instead.
     """
     env = {name: os.environ[name] for name in KEPT_FROM_ENVIRONMENT if name in os.environ}
     env.update({"PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1", "PYTHONDONTWRITEBYTECODE": "1"})
@@ -55,29 +68,26 @@ class CodeRunner:
         self.enabled = enabled
         """``False``: nothing runs and every result is NOT EXECUTED (see ``Settings.execution``)."""
 
-    def run(self, files: Mapping[str, str], command: str) -> ExecutionResult:
+    def run(self, files: Mapping[str, str], command: str, *,
+            dependencies: str = "") -> ExecutionResult:
+        # Accepted to satisfy `CodeExecutionBackend` and ignored on purpose. It names a Docker
+        # volume, which means nothing to a host subprocess, and this backend is never wired to
+        # an installer — `container.py` gives it a `NullInstaller` that says why.
+        del dependencies
         if not self.enabled:  # before touching the disk at all
             return ExecutionResult.not_executed(DISABLED_REASON)
         if not files:
             return ExecutionResult.not_executed("no file was given")
-        try:
-            parts = shlex.split(command or "")
-        except ValueError as exc:
-            return ExecutionResult.not_executed(f"malformed command ({exc})")
-        executable = self.interpreters.resolve(parts[0]) if parts else None
-        if not parts or executable is None:
-            return ExecutionResult.not_executed(
-                f"only {self.interpreters.describe()} may run here. You asked: {command!r}"
-            )
+        resolved = resolve_command(command, self.interpreters)
+        if isinstance(resolved, ExecutionResult):
+            return resolved
+        executable, parts = resolved
 
         with tempfile.TemporaryDirectory(prefix="mirag-run-") as folder:
             root = Path(folder).resolve()
-            for relative, content in files.items():
-                target = (root / relative).resolve()
-                if not target.is_relative_to(root):  # nothing like ../../etc/passwd
-                    return ExecutionResult.not_executed(f"path not allowed ({relative!r})")
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(str(content).encode("utf-8"))
+            error = write_workspace(files, root)
+            if error is not None:
+                return error
             try:
                 completed = subprocess.run(
                     [executable, *parts[1:]],
